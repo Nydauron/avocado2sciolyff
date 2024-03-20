@@ -35,21 +35,31 @@ func main() {
 	fmt.Printf("%v", table)
 }
 
-type TableRow struct {
-	cells []TableCell
+type Table struct {
+	events  []string
+	schools []School
 }
 
-type TableCell struct {
-	data string
+type School struct {
+	teamNumber string
+	name       string
+	track      string
+	scores     []string
+	totalScore string
+	rank       string
 }
 
-func ParseHTML(r io.ReadCloser) []TableRow {
+func ParseHTML(r io.ReadCloser) Table {
 	z := html.NewTokenizer(r)
-	table := make([]TableRow, 0)
+	table := Table{}
 	isTable := false
+	isEventName := false
+	isTableHead := false
 	isTableRow := false
 	isTableCell := false
-	bufferRow := TableRow{}
+	eventCount := 0
+	currentColumn := 0
+	bufferSchool := School{}
 	for {
 		tt := z.Next()
 		switch tt {
@@ -65,17 +75,30 @@ func ParseHTML(r io.ReadCloser) []TableRow {
 			}
 			isTableCell = isTableRow && (t.Data == "th" || t.Data == "td")
 			if isTableCell {
+				if t.Data == "th" {
+					for _, attr := range t.Attr {
+						if attr.Key == "class" {
+							classRegex := regexp.MustCompile(`\brotated\b`)
+							isEventName = classRegex.MatchString(attr.Val)
+						}
+					}
+				}
 				continue
 			}
 			isTableRow = isTable && t.Data == "tr"
 			if isTableRow {
-				bufferRow = TableRow{}
+				currentColumn = 0
+				bufferSchool = School{}
+				continue
+			}
+			isTableHead = isTable && t.Data == "thead"
+			if isTableHead {
 				continue
 			}
 			if t.Data == "table" {
 				for _, attr := range t.Attr {
 					if attr.Key == "class" {
-						classRegex := regexp.MustCompile(`\btable-striped\b`)
+						classRegex := regexp.MustCompile(`\bresults-table\b`)
 						isTable = classRegex.MatchString(attr.Val)
 					}
 				}
@@ -84,19 +107,46 @@ func ParseHTML(r io.ReadCloser) []TableRow {
 
 		case html.TextToken:
 			t := z.Token()
-			if isTableCell {
-				bufferRow.cells = append(bufferRow.cells, TableCell{data: strings.Trim(t.Data, " ")})
+			if isTableHead && isEventName {
+				table.events = append(table.events, strings.Trim(t.Data, " "))
+				eventCount = len(table.events)
+				continue
+			}
+			if !isTableHead && isTableCell {
+				trimmedData := strings.Trim(t.Data, " ")
+				switch currentColumn {
+				case 0:
+					bufferSchool.teamNumber = trimmedData
+				case 1:
+					bufferSchool.name = trimmedData
+				case 2:
+					bufferSchool.track = trimmedData
+				case 2 + eventCount + 1:
+					bufferSchool.totalScore = trimmedData
+				case 2 + eventCount + 2:
+					bufferSchool.rank = trimmedData
+				default:
+					bufferSchool.scores = append(bufferSchool.scores, trimmedData)
+				}
+				currentColumn += 1
 			}
 		case html.EndTagToken:
 			t := z.Token()
+			if t.Data == "a" || t.Data == "span" {
+				isEventName = false
+				continue
+			}
 			if t.Data == "th" || t.Data == "td" {
 				isTableCell = false
 				continue
 			}
 			if t.Data == "tr" {
 				isTableRow = false
-				table = append(table, bufferRow)
-				bufferRow = TableRow{}
+				if bufferSchool.teamNumber != "" && bufferSchool.name != "" {
+					table.schools = append(table.schools, bufferSchool)
+				}
+				bufferSchool = School{}
+				currentColumn = 0
 				continue
 			}
 			if t.Data == "table" {
