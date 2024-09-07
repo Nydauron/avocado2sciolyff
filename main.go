@@ -3,36 +3,77 @@ package main
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
 
+	"github.com/urfave/cli/v2"
 	"golang.org/x/net/html"
 )
 
-func main() {
-	if len(os.Args) <= 1 {
-		fmt.Fprintln(os.Stderr, "Please provide a URL")
-		os.Exit(1)
-		return
-	}
-	rawUrl := os.Args[1]
+func cliHandle(input_location string) error {
+	var html_body_reader io.ReadCloser
+	if u, err := url.ParseRequestURI(input_location); err == nil {
+		fmt.Fprintln(os.Stderr, "URL detected")
+		rawUrl := u.String()
+		resp, err := http.Get(rawUrl)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error occurred when trying to fetch page: %v\n", err)
+			os.Exit(2)
+			return nil
+		}
 
-	resp, err := http.Get(rawUrl)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error occurred when trying to fetch page: %v\n", err)
-		os.Exit(2)
-		return
+		if resp.StatusCode >= 400 {
+			return fmt.Errorf("Invalid HTTP status code received: %v", resp.Status)
+		}
+		contentType := resp.Header.Get("content-type")
+		expectedContent := "text/html; charset=UTF-8"
+		if contentType != expectedContent {
+			fmt.Fprintf(os.Stderr, "Page content recieved is not text/html UTF-8. Got instead \"%s\n", contentType)
+		}
+		html_body_reader = resp.Body
+	} else if f, err := os.Open(input_location); err == nil {
+		fmt.Fprintln(os.Stderr, "File detected")
+		html_body_reader = f
+	} else {
+		return fmt.Errorf("Provided input was neither a valid URL or a path to existing file: %v", input_location)
 	}
 
-	contentType := resp.Header.Get("content-type")
-	expectedContent := "text/html; charset=UTF-8"
-	if contentType != expectedContent {
-		fmt.Fprintf(os.Stderr, "Page content recieved is not text/html UTF-8. Got instead \"%s\n", contentType)
-	}
-	table := ParseHTML(resp.Body)
+	table := ParseHTML(html_body_reader)
 	fmt.Printf("%v", table)
+
+	return nil
+}
+
+const (
+	INPUT_FLAG = "input"
+)
+
+func main() {
+	var input_location string
+	app := &cli.App{
+		Name:  "avocado2sciolyff",
+		Usage: "A tool to turn table results on Avogadro to sciolyff results",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:        INPUT_FLAG,
+				Aliases:     []string{"i"},
+				Usage:       "The URL or path to the HTML file containing the table to convert",
+				Destination: &input_location,
+				Required:    true,
+			},
+		},
+		Action: func(cCtx *cli.Context) error {
+			return cliHandle(input_location)
+		},
+	}
+
+	if err := app.Run(os.Args); err != nil {
+		log.Fatal(err)
+	}
 }
 
 type Table struct {
