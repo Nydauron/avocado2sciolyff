@@ -14,12 +14,12 @@ import (
 	"golang.org/x/net/html"
 )
 
-func cliHandle(input_location string) error {
-	var html_body_reader io.ReadCloser
-	if u, err := url.ParseRequestURI(input_location); err == nil {
+func cliHandle(inputLocation string) error {
+	var htmlBodyReader io.ReadCloser
+	if u, err := url.ParseRequestURI(inputLocation); err == nil {
 		fmt.Fprintln(os.Stderr, "URL detected")
-		rawUrl := u.String()
-		resp, err := http.Get(rawUrl)
+		rawURL := u.String()
+		resp, err := http.Get(rawURL)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error occurred when trying to fetch page: %v\n", err)
 			os.Exit(2)
@@ -27,47 +27,47 @@ func cliHandle(input_location string) error {
 		}
 
 		if resp.StatusCode >= 400 {
-			return fmt.Errorf("Invalid HTTP status code received: %v", resp.Status)
+			return fmt.Errorf("invalid HTTP status code received: %v", resp.Status)
 		}
 		contentType := resp.Header.Get("content-type")
 		expectedContent := "text/html; charset=UTF-8"
 		if contentType != expectedContent {
 			fmt.Fprintf(os.Stderr, "Page content recieved is not text/html UTF-8. Got instead \"%s\n", contentType)
 		}
-		html_body_reader = resp.Body
-	} else if f, err := os.Open(input_location); err == nil {
+		htmlBodyReader = resp.Body
+	} else if f, err := os.Open(inputLocation); err == nil {
 		fmt.Fprintln(os.Stderr, "File detected")
-		html_body_reader = f
+		htmlBodyReader = f
 	} else {
-		return fmt.Errorf("Provided input was neither a valid URL or a path to existing file: %v", input_location)
+		return fmt.Errorf("provided input was neither a valid URL or a path to existing file: %v", inputLocation)
 	}
 
-	table := ParseHTML(html_body_reader)
+	table := parseHTML(htmlBodyReader)
 	fmt.Printf("%v", table)
 
 	return nil
 }
 
 const (
-	INPUT_FLAG = "input"
+	inputFlag = "input"
 )
 
 func main() {
-	var input_location string
+	var inputLocation string
 	app := &cli.App{
 		Name:  "avocado2sciolyff",
 		Usage: "A tool to turn table results on Avogadro to sciolyff results",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:        INPUT_FLAG,
+				Name:        inputFlag,
 				Aliases:     []string{"i"},
 				Usage:       "The URL or path to the HTML file containing the table to convert",
-				Destination: &input_location,
+				Destination: &inputLocation,
 				Required:    true,
 			},
 		},
 		Action: func(cCtx *cli.Context) error {
-			return cliHandle(input_location)
+			return cliHandle(inputLocation)
 		},
 	}
 
@@ -76,12 +76,12 @@ func main() {
 	}
 }
 
-type Table struct {
+type table struct {
 	events  []string
-	schools []School
+	schools []school
 }
 
-type School struct {
+type school struct {
 	teamNumber string
 	name       string
 	track      string
@@ -90,9 +90,9 @@ type School struct {
 	rank       string
 }
 
-func ParseHTML(r io.ReadCloser) Table {
+func parseHTML(r io.ReadCloser) table {
 	z := html.NewTokenizer(r)
-	table := Table{}
+	table := table{}
 	isTable := false
 	isEventName := false
 	isTableHead := false
@@ -100,7 +100,7 @@ func ParseHTML(r io.ReadCloser) Table {
 	isTableCell := false
 	eventCount := 0
 	currentColumn := 0
-	bufferSchool := School{}
+	bufferSchool := school{}
 	for {
 		tt := z.Next()
 		switch tt {
@@ -129,7 +129,7 @@ func ParseHTML(r io.ReadCloser) Table {
 			isTableRow = isTable && t.Data == "tr"
 			if isTableRow {
 				currentColumn = 0
-				bufferSchool = School{}
+				bufferSchool = school{}
 				continue
 			}
 			isTableHead = isTable && t.Data == "thead"
@@ -169,7 +169,7 @@ func ParseHTML(r io.ReadCloser) Table {
 				default:
 					bufferSchool.scores = append(bufferSchool.scores, trimmedData)
 				}
-				currentColumn += 1
+				currentColumn++
 			}
 		case html.EndTagToken:
 			t := z.Token()
@@ -186,7 +186,7 @@ func ParseHTML(r io.ReadCloser) Table {
 				if bufferSchool.teamNumber != "" && bufferSchool.name != "" {
 					table.schools = append(table.schools, bufferSchool)
 				}
-				bufferSchool = School{}
+				bufferSchool = school{}
 				currentColumn = 0
 				continue
 			}
