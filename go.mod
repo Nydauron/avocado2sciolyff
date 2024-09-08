@@ -1,6 +1,6 @@
 module github.com/Nydauron/avogado-to-sciolyff
 
-go 1.22.1
+go 1.23
 
 require (
 	github.com/urfave/cli/v2 v2.27.4

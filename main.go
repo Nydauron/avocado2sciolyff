@@ -1,15 +1,19 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/urfave/cli/v2"
 	"golang.org/x/net/html"
@@ -124,13 +128,20 @@ func main() {
 }
 
 type sciolyFF struct {
-	Events   []event   `yaml:"Events"`
-	Placings []placing `yaml:"Placings"`
+	Tournament tournamentMetadata `yaml:"Tournament"`
+	Events     []event            `yaml:"Events"`
+	Teams      []school           `yaml:"Teams"`
+	Placings   []placing          `yaml:"Placings"`
 }
 
 type table struct {
-	events  []string
+	events  []avogadroEvent
 	schools []school
+}
+
+type avogadroEvent struct {
+	name            string
+	isMarkedAsTrial bool
 }
 
 type tournamentMetadata struct {
@@ -140,7 +151,7 @@ type tournamentMetadata struct {
 	Level     string `yaml:"level"`
 	State     string `yaml:"state"`
 	Division  string `yaml:"division"`
-	Year      string `yaml:"year"`
+	Year      int    `yaml:"year"`
 	Date      string `yaml:"date"`
 }
 
@@ -175,13 +186,18 @@ func parseHTML(r io.ReadCloser) (*table, error) {
 	z := html.NewTokenizer(r)
 	table := table{}
 	isTable := false
+
+	isProcessingEventHeader := false
 	isEventName := false
+	isEventPotentialTrial := false
+
 	isTableHead := false
 	isTableRow := false
 	isTableCell := false
 	eventCount := 0
 	currentColumn := 0
 	bufferSchool := school{}
+	bufferEvent := avogadroEvent{}
 	for {
 		tt := z.Next()
 		switch tt {
@@ -191,8 +207,19 @@ func parseHTML(r io.ReadCloser) (*table, error) {
 			t := z.Token()
 			switch t.Data {
 			case "span":
-				fallthrough
+				if isProcessingEventHeader {
+					for _, attr := range t.Attr {
+						if attr.Key == "class" {
+							classLabelWarningRegex := regexp.MustCompile(`\blabel-warning\b`)
+							isEventPotentialTrial = classLabelWarningRegex.MatchString(attr.Val)
+						}
+					}
+				}
+				continue
 			case "a":
+				if isProcessingEventHeader {
+					isEventName = true
+				}
 				continue
 			}
 			isTableCell = isTableRow && (t.Data == "th" || t.Data == "td")
@@ -201,7 +228,7 @@ func parseHTML(r io.ReadCloser) (*table, error) {
 					for _, attr := range t.Attr {
 						if attr.Key == "class" {
 							classRegex := regexp.MustCompile(`\brotated\b`)
-							isEventName = classRegex.MatchString(attr.Val)
+							isProcessingEventHeader = classRegex.MatchString(attr.Val)
 						}
 					}
 				}
@@ -229,20 +256,24 @@ func parseHTML(r io.ReadCloser) (*table, error) {
 
 		case html.TextToken:
 			t := z.Token()
-			if isTableHead && isEventName {
-				table.events = append(table.events, strings.Trim(t.Data, " "))
-				eventCount = len(table.events)
+			trimmedData := strings.Trim(t.Data, " ")
+			if isEventName {
+				bufferEvent.name = trimmedData
 				continue
 			}
+			if isEventPotentialTrial {
+				if strings.Contains(trimmedData, "Trial") {
+					bufferEvent.isMarkedAsTrial = true
+				}
+			}
 			if !isTableHead && isTableCell {
-				trimmedData := strings.Trim(t.Data, " ")
 				switch currentColumn {
 				case 0:
 					bufferSchool.TeamNumber = trimmedData
 				case 1:
 					bufferSchool.Name = trimmedData
 				case 2:
-					bufferSchool.Track = trimmedData
+					bufferSchool.Track = strings.Trim(trimmedData, "()")
 				case 2 + eventCount + 1:
 					bufferSchool.TotalScore = trimmedData
 				case 2 + eventCount + 2:
@@ -258,7 +289,22 @@ func parseHTML(r io.ReadCloser) (*table, error) {
 			}
 		case html.EndTagToken:
 			t := z.Token()
-			if t.Data == "a" || t.Data == "span" {
+			if t.Data == "a" {
+				isEventName = false
+				continue
+			}
+			if t.Data == "span" {
+				isEventPotentialTrial = false
+				continue
+			}
+			if t.Data == "th" {
+				if isProcessingEventHeader && isTableHead {
+					table.events = append(table.events, bufferEvent)
+					eventCount = len(table.events)
+					bufferEvent = avogadroEvent{}
+				}
+				isProcessingEventHeader = false
+				isEventPotentialTrial = false
 				isEventName = false
 				continue
 			}
@@ -283,10 +329,31 @@ func parseHTML(r io.ReadCloser) (*table, error) {
 	}
 }
 
+const eventIsTrial = true
+const eventWasTrialed = false
+
+func eventDistingushTrialMarkerPrompt(eventName string) bool {
+	for {
+		userInput := prompt(fmt.Sprintf("Event %s had a trial marker. Was this event a trial event (1) or was the event trialed (2)? ", eventName))
+		if userSelection, err := strconv.ParseInt(userInput, 10, 8); err == nil {
+			switch userSelection {
+			case 1:
+				return eventIsTrial
+			case 2:
+				return eventWasTrialed
+			}
+		}
+	}
+}
+
 func generateSciolyFF(table table) sciolyFF {
 	events := make([]event, 0)
-	for _, eventName := range table.events {
-		events = append(events, event{Name: eventName, IsTrial: false, TrialedNormalEvent: false})
+	for _, e := range table.events {
+		isEventTrialEvent := false
+		if e.isMarkedAsTrial {
+			isEventTrialEvent = eventDistingushTrialMarkerPrompt(e.name)
+		}
+		events = append(events, event{Name: e.name, IsTrial: e.isMarkedAsTrial && isEventTrialEvent, TrialedNormalEvent: e.isMarkedAsTrial && !isEventTrialEvent})
 	}
 
 	placings := make([]placing, 0)
@@ -305,5 +372,162 @@ func generateSciolyFF(table table) sciolyFF {
 		}
 	}
 
-	return sciolyFF{Events: events, Placings: placings}
+	tournament := tournamentMetadata{
+		Name:      prompt("Tournament name: "),
+		ShortName: prompt("Tournament nickname/short name: "),
+		Location:  prompt("Tournament location (host building/campus): "),
+		Level:     tournamentLevelPrompt(),
+		State:     statePrompt(),
+		Division:  tournamentDivisionPrompt(),
+		Year:      rulesYearPrompt(),
+		Date:      tournamentDatePrompt(),
+	}
+
+	return sciolyFF{Tournament: tournament, Events: events, Teams: table.schools, Placings: placings}
+}
+
+func tournamentDatePrompt() string {
+	for {
+		userInput := prompt("Tournament date: ")
+		_, err := time.Parse(time.DateOnly, userInput)
+		if err == nil {
+			return userInput
+		}
+	}
+}
+
+func rulesYearPrompt() int {
+	for {
+		userInput := prompt("Rules Year: ")
+		parsedYear, err := strconv.Atoi(userInput)
+		if err == nil {
+			return parsedYear
+		}
+	}
+}
+
+func tournamentDivisionPrompt() string {
+	translatedDivision := ""
+	for translatedDivision == "" {
+		userInput := strings.ToUpper(prompt("Tournament division (a, b, c): "))
+		if userInput[0] >= 'A' || userInput[0] <= 'C' {
+			translatedDivision = userInput[:1]
+		}
+	}
+	return translatedDivision
+}
+
+func tournamentLevelPrompt() string {
+	translatedLevel := ""
+	for translatedLevel == "" {
+		userInput := prompt("Tournament level (i, r, s, n): ")
+		translatedLevel = translateLevelAbbrevToFull(strings.ToLower(userInput)[0])
+	}
+	return translatedLevel
+}
+
+var stateMapping = map[string]string{
+	"ALABAMA":              "AL",
+	"ALASKA":               "AK",
+	"ARIZONA":              "AZ",
+	"ARKANSAS":             "AR",
+	"NORTH CALIFORNIA":     "NCA",
+	"SOUTH CALIFORNIA":     "SCA",
+	"COLORADO":             "CO",
+	"CONNECTICUT":          "CT",
+	"DELAWARE":             "DE",
+	"DISTRICT OF COLUMBIA": "DC",
+	"FLORIDA":              "FL",
+	"GEORGIA":              "GA",
+	"HAWAII":               "HI",
+	"IDAHO":                "ID",
+	"ILLINOIS":             "IL",
+	"INDIANA":              "IN",
+	"IOWA":                 "IA",
+	"KANSAS":               "KS",
+	"KENTUCKY":             "KY",
+	"LOUISIANA":            "LA",
+	"MAINE":                "ME",
+	"MARYLAND":             "MD",
+	"MASSACHUSETS":         "MA",
+	"MICHIGAN":             "MI",
+	"MINNESOTA":            "MN",
+	"MISSISSIPPI":          "MS",
+	"MISSOURI":             "MO",
+	"MONTANA":              "MT",
+	"NEBRASKA":             "NE",
+	"NEVADA":               "NV",
+	"NEW HAMPSHIRE":        "NH",
+	"NEW JERSEY":           "NJ",
+	"NEW MEXICO":           "NM",
+	"NEW YORK":             "NY",
+	"NORTH CAROLINA":       "NC",
+	"NORTH DAKOTA":         "ND",
+	"OHIO":                 "OH",
+	"OKLAHOMA":             "OK",
+	"OREGON":               "OR",
+	"PENNSYLVANIA":         "PA",
+	"ROAD ISLAND":          "RI",
+	"SOUTH CAROLINA":       "SC",
+	"SOUTH DAKOTA":         "SD",
+	"TENNESSEE":            "TN",
+	"TEXAS":                "TX",
+	"UTAH":                 "UT",
+	"VERMONT":              "VT",
+	"VIRGINIA":             "VA",
+	"WASHINGTON":           "WA",
+	"WEST VIRGINIA":        "WV",
+	"WISCONSIN":            "WI",
+	"WYOMING":              "WY",
+}
+var stateAbbreviations = func() []string {
+	arr := make([]string, 0, len(stateMapping))
+	for v := range maps.Values(stateMapping) {
+		arr = append(arr, v)
+	}
+
+	return arr
+}()
+var stateNames = func() []string {
+	arr := make([]string, 0, len(stateMapping))
+	for v := range maps.Keys(stateMapping) {
+		arr = append(arr, v)
+	}
+
+	return arr
+}()
+
+func statePrompt() string {
+	translatedState := ""
+	for translatedState == "" {
+		userInput := strings.ToUpper(prompt("State: "))
+		if slices.Contains(stateAbbreviations, userInput) {
+			translatedState = userInput
+		} else if slices.Contains(stateNames, userInput) {
+			translatedState = stateMapping[userInput]
+		}
+	}
+	return translatedState
+}
+
+func translateLevelAbbrevToFull(a byte) string {
+	switch a {
+	case 'i':
+		return "Invitational"
+	case 'r':
+		return "Regionals"
+	case 's':
+		return "States"
+	case 'n':
+		return "Nationals"
+	default:
+		return ""
+	}
+}
+
+func prompt(message string) string {
+	fmt.Fprint(os.Stderr, message)
+	buf := bufio.NewReader(os.Stdin)
+	input, _ := buf.ReadString('\n')
+	return strings.TrimRight(input, "\n")
 }
