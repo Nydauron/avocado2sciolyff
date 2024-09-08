@@ -29,6 +29,8 @@ const (
 	stdoutCLIName = "-"
 )
 
+var build string
+var semanticVersion = "v0.1.0-dev" + build
 
 var stateMapping = map[string]string{
 	"ALABAMA":              "AL",
@@ -165,8 +167,9 @@ func main() {
 	var inputLocation string
 	var outputLocation string = ""
 	app := &cli.App{
-		Name:  "avocado2sciolyff",
-		Usage: "A tool to turn table results on Avogadro to sciolyff results",
+		Name:    "avocado2sciolyff",
+		Usage:   "A tool to turn table results on Avogadro to sciolyff results",
+		Version: semanticVersion,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:        inputFlag,
