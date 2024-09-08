@@ -8,13 +8,15 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/urfave/cli/v2"
 	"golang.org/x/net/html"
+	"gopkg.in/yaml.v3"
 )
 
-func cliHandle(inputLocation string) error {
+func cliHandle(inputLocation string, outputWriter io.Writer) error {
 	var htmlBodyReader io.ReadCloser
 	if u, err := url.ParseRequestURI(inputLocation); err == nil {
 		fmt.Fprintln(os.Stderr, "URL detected")
@@ -42,18 +44,43 @@ func cliHandle(inputLocation string) error {
 		return fmt.Errorf("provided input was neither a valid URL or a path to existing file: %v", inputLocation)
 	}
 
-	table := parseHTML(htmlBodyReader)
-	fmt.Printf("%v", table)
+	table, err := parseHTML(htmlBodyReader)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cell did not contain number: %v\n", err)
+		os.Exit(4)
+		return nil
+	}
+
+	sciolyffDump := generateSciolyFF(*table)
+
+	yamlEncoder := yaml.NewEncoder(outputWriter)
+	yamlEncoder.SetIndent(2)
+	err = yamlEncoder.Encode(&sciolyffDump)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Encoding to YAML failed: %v", err)
+		os.Exit(3)
+		return nil
+	}
+
+	err = yamlEncoder.Close()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Encoding to YAML failed on close: %v", err)
+		os.Exit(3)
+		return nil
+	}
 
 	return nil
 }
 
 const (
-	inputFlag = "input"
+	inputFlag     = "input"
+	outputFlag    = "output"
+	stdoutCLIName = "-"
 )
 
 func main() {
 	var inputLocation string
+	var outputLocation string = ""
 	app := &cli.App{
 		Name:  "avocado2sciolyff",
 		Usage: "A tool to turn table results on Avogadro to sciolyff results",
@@ -65,9 +92,27 @@ func main() {
 				Destination: &inputLocation,
 				Required:    true,
 			},
+			&cli.StringFlag{
+				Name:        outputFlag,
+				Aliases:     []string{"o"},
+				Usage:       "The location to write the YAML result. Can be a file path or \"-\" (for stdout).",
+				Required:    true,
+				Destination: &outputLocation,
+			},
 		},
 		Action: func(cCtx *cli.Context) error {
-			return cliHandle(inputLocation)
+			if outputLocation == "" {
+				return fmt.Errorf("output not set")
+			}
+			var outputWriter io.WriteCloser = os.Stdout
+			if outputLocation != stdoutCLIName {
+				var err error
+				outputWriter, err = os.OpenFile(outputLocation, os.O_CREATE|os.O_WRONLY, 0644)
+				if err != nil {
+					return fmt.Errorf("could not create or open file: %v", err)
+				}
+			}
+			return cliHandle(inputLocation, outputWriter)
 		},
 	}
 
@@ -76,21 +121,55 @@ func main() {
 	}
 }
 
+type sciolyFF struct {
+	Events   []event   `yaml:"Events"`
+	Placings []placing `yaml:"Placings"`
+}
+
 type table struct {
 	events  []string
 	schools []school
 }
 
-type school struct {
-	teamNumber string
-	name       string
-	track      string
-	scores     []string
-	totalScore string
-	rank       string
+type tournamentMetadata struct {
+	Name      string `yaml:"name"`
+	ShortName string `yaml:"short name"`
+	Location  string `yaml:"location"`
+	Level     string `yaml:"level"`
+	State     string `yaml:"state"`
+	Division  string `yaml:"division"`
+	Year      string `yaml:"year"`
+	Date      string `yaml:"date"`
 }
 
-func parseHTML(r io.ReadCloser) table {
+type event struct {
+	Name               string `yaml:"name"`
+	IsTrial            bool   `yaml:"trial"`
+	TrialedNormalEvent bool   `yaml:"trialed"`
+	ScoringObjective   string `yaml:"scoring,omitempty"`
+}
+
+type placing struct {
+	Event        string `yaml:"event"`
+	TeamNumber   string `yaml:"team"`
+	Participated bool   `yaml:"participated"`
+	EventDQ      bool   `yaml:"disqualified"`
+	Exempt       bool   `yaml:"exempt"`
+	Unknown      bool   `yaml:"unknown"`
+	Tie          bool   `yaml:"tie"`
+	Place        uint   `yaml:"place"`
+}
+
+type school struct {
+	TeamNumber string `yaml:"number"`
+	Name       string `yaml:"school"`
+	Track      string `yaml:"track"`
+	Scores     []uint `yaml:"-"`
+	TotalScore string `yaml:"-"`
+	Rank       string `yaml:"-"`
+}
+
+func parseHTML(r io.ReadCloser) (*table, error) {
 	z := html.NewTokenizer(r)
 	table := table{}
 	isTable := false
@@ -105,7 +184,7 @@ func parseHTML(r io.ReadCloser) table {
 		tt := z.Next()
 		switch tt {
 		case html.ErrorToken:
-			return table
+			return &table, nil
 		case html.StartTagToken:
 			t := z.Token()
 			switch t.Data {
@@ -157,17 +236,21 @@ func parseHTML(r io.ReadCloser) table {
 				trimmedData := strings.Trim(t.Data, " ")
 				switch currentColumn {
 				case 0:
-					bufferSchool.teamNumber = trimmedData
+					bufferSchool.TeamNumber = trimmedData
 				case 1:
-					bufferSchool.name = trimmedData
+					bufferSchool.Name = trimmedData
 				case 2:
-					bufferSchool.track = trimmedData
+					bufferSchool.Track = trimmedData
 				case 2 + eventCount + 1:
-					bufferSchool.totalScore = trimmedData
+					bufferSchool.TotalScore = trimmedData
 				case 2 + eventCount + 2:
-					bufferSchool.rank = trimmedData
+					bufferSchool.Rank = trimmedData
 				default:
-					bufferSchool.scores = append(bufferSchool.scores, trimmedData)
+					place, err := strconv.ParseUint(trimmedData, 10, 8)
+					if err != nil {
+						return nil, err
+					}
+					bufferSchool.Scores = append(bufferSchool.Scores, uint(place))
 				}
 				currentColumn++
 			}
@@ -183,7 +266,7 @@ func parseHTML(r io.ReadCloser) table {
 			}
 			if t.Data == "tr" {
 				isTableRow = false
-				if bufferSchool.teamNumber != "" && bufferSchool.name != "" {
+				if bufferSchool.TeamNumber != "" && bufferSchool.Name != "" {
 					table.schools = append(table.schools, bufferSchool)
 				}
 				bufferSchool = school{}
@@ -196,4 +279,29 @@ func parseHTML(r io.ReadCloser) table {
 			}
 		}
 	}
+}
+
+func generateSciolyFF(table table) sciolyFF {
+	events := make([]event, 0)
+	for _, eventName := range table.events {
+		events = append(events, event{Name: eventName, IsTrial: false, TrialedNormalEvent: false})
+	}
+
+	placings := make([]placing, 0)
+	teamCount := uint(len(table.schools))
+	for _, team := range table.schools {
+		for eventIdx, score := range team.Scores {
+			p := placing{Event: events[eventIdx].Name, TeamNumber: team.TeamNumber}
+			switch {
+			case score == teamCount: // P
+				p.Participated = true
+			case score >= teamCount+2: // DQ
+				p.EventDQ = true
+			}
+			p.Place = score
+			placings = append(placings, p)
+		}
+	}
+
+	return sciolyFF{Events: events, Placings: placings}
 }
