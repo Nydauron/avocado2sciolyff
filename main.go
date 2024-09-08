@@ -31,6 +31,7 @@ func cliHandle(inputLocation string, outputWriter io.Writer) error {
 		if resp.StatusCode >= 400 {
 			return fmt.Errorf("invalid HTTP status code received: %v", resp.Status)
 		}
+		defer resp.Body.Close()
 		contentType := resp.Header.Get("content-type")
 		expectedContent := "text/html; charset=UTF-8"
 		if contentType != expectedContent {
@@ -39,6 +40,7 @@ func cliHandle(inputLocation string, outputWriter io.Writer) error {
 		htmlBodyReader = resp.Body
 	} else if f, err := os.Open(inputLocation); err == nil {
 		fmt.Fprintln(os.Stderr, "File detected")
+		defer f.Close()
 		htmlBodyReader = f
 	} else {
 		return fmt.Errorf("provided input was neither a valid URL or a path to existing file: %v", inputLocation)
