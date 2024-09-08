@@ -20,6 +20,89 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const (
+	eventIsTrial    = true
+	eventWasTrialed = false
+
+	inputFlag     = "input"
+	outputFlag    = "output"
+	stdoutCLIName = "-"
+)
+
+
+var stateMapping = map[string]string{
+	"ALABAMA":              "AL",
+	"ALASKA":               "AK",
+	"ARIZONA":              "AZ",
+	"ARKANSAS":             "AR",
+	"NORTH CALIFORNIA":     "NCA",
+	"SOUTH CALIFORNIA":     "SCA",
+	"COLORADO":             "CO",
+	"CONNECTICUT":          "CT",
+	"DELAWARE":             "DE",
+	"DISTRICT OF COLUMBIA": "DC",
+	"FLORIDA":              "FL",
+	"GEORGIA":              "GA",
+	"HAWAII":               "HI",
+	"IDAHO":                "ID",
+	"ILLINOIS":             "IL",
+	"INDIANA":              "IN",
+	"IOWA":                 "IA",
+	"KANSAS":               "KS",
+	"KENTUCKY":             "KY",
+	"LOUISIANA":            "LA",
+	"MAINE":                "ME",
+	"MARYLAND":             "MD",
+	"MASSACHUSETS":         "MA",
+	"MICHIGAN":             "MI",
+	"MINNESOTA":            "MN",
+	"MISSISSIPPI":          "MS",
+	"MISSOURI":             "MO",
+	"MONTANA":              "MT",
+	"NEBRASKA":             "NE",
+	"NEVADA":               "NV",
+	"NEW HAMPSHIRE":        "NH",
+	"NEW JERSEY":           "NJ",
+	"NEW MEXICO":           "NM",
+	"NEW YORK":             "NY",
+	"NORTH CAROLINA":       "NC",
+	"NORTH DAKOTA":         "ND",
+	"OHIO":                 "OH",
+	"OKLAHOMA":             "OK",
+	"OREGON":               "OR",
+	"PENNSYLVANIA":         "PA",
+	"ROAD ISLAND":          "RI",
+	"SOUTH CAROLINA":       "SC",
+	"SOUTH DAKOTA":         "SD",
+	"TENNESSEE":            "TN",
+	"TEXAS":                "TX",
+	"UTAH":                 "UT",
+	"VERMONT":              "VT",
+	"VIRGINIA":             "VA",
+	"WASHINGTON":           "WA",
+	"WEST VIRGINIA":        "WV",
+	"WISCONSIN":            "WI",
+	"WYOMING":              "WY",
+}
+
+var stateAbbreviations = func() []string {
+	arr := make([]string, 0, len(stateMapping))
+	for v := range maps.Values(stateMapping) {
+		arr = append(arr, v)
+	}
+
+	return arr
+}()
+
+var stateNames = func() []string {
+	arr := make([]string, 0, len(stateMapping))
+	for v := range maps.Keys(stateMapping) {
+		arr = append(arr, v)
+	}
+
+	return arr
+}()
+
 func cliHandle(inputLocation string, outputWriter io.Writer) error {
 	var htmlBodyReader io.ReadCloser
 	if u, err := url.ParseRequestURI(inputLocation); err == nil {
@@ -78,12 +161,6 @@ func cliHandle(inputLocation string, outputWriter io.Writer) error {
 	return nil
 }
 
-const (
-	inputFlag     = "input"
-	outputFlag    = "output"
-	stdoutCLIName = "-"
-)
-
 func main() {
 	var inputLocation string
 	var outputLocation string = ""
@@ -127,13 +204,6 @@ func main() {
 	}
 }
 
-type sciolyFF struct {
-	Tournament tournamentMetadata `yaml:"Tournament"`
-	Events     []event            `yaml:"Events"`
-	Teams      []school           `yaml:"Teams"`
-	Placings   []placing          `yaml:"Placings"`
-}
-
 type table struct {
 	events  []avogadroEvent
 	schools []school
@@ -142,6 +212,13 @@ type table struct {
 type avogadroEvent struct {
 	name            string
 	isMarkedAsTrial bool
+}
+
+type sciolyFF struct {
+	Tournament tournamentMetadata `yaml:"Tournament"`
+	Events     []event            `yaml:"Events"`
+	Teams      []school           `yaml:"Teams"`
+	Placings   []placing          `yaml:"Placings"`
 }
 
 type tournamentMetadata struct {
@@ -329,23 +406,6 @@ func parseHTML(r io.ReadCloser) (*table, error) {
 	}
 }
 
-const eventIsTrial = true
-const eventWasTrialed = false
-
-func eventDistingushTrialMarkerPrompt(eventName string) bool {
-	for {
-		userInput := prompt(fmt.Sprintf("Event %s had a trial marker. Was this event a trial event (1) or was the event trialed (2)? ", eventName))
-		if userSelection, err := strconv.ParseInt(userInput, 10, 8); err == nil {
-			switch userSelection {
-			case 1:
-				return eventIsTrial
-			case 2:
-				return eventWasTrialed
-			}
-		}
-	}
-}
-
 func generateSciolyFF(table table) sciolyFF {
 	events := make([]event, 0)
 	for _, e := range table.events {
@@ -384,6 +444,20 @@ func generateSciolyFF(table table) sciolyFF {
 	}
 
 	return sciolyFF{Tournament: tournament, Events: events, Teams: table.schools, Placings: placings}
+}
+
+func eventDistingushTrialMarkerPrompt(eventName string) bool {
+	for {
+		userInput := prompt(fmt.Sprintf("Event %s had a trial marker. Was this event a trial event (1) or was the event trialed (2)? ", eventName))
+		if userSelection, err := strconv.ParseInt(userInput, 10, 8); err == nil {
+			switch userSelection {
+			case 1:
+				return eventIsTrial
+			case 2:
+				return eventWasTrialed
+			}
+		}
+	}
 }
 
 func tournamentDatePrompt() string {
@@ -425,77 +499,6 @@ func tournamentLevelPrompt() string {
 	}
 	return translatedLevel
 }
-
-var stateMapping = map[string]string{
-	"ALABAMA":              "AL",
-	"ALASKA":               "AK",
-	"ARIZONA":              "AZ",
-	"ARKANSAS":             "AR",
-	"NORTH CALIFORNIA":     "NCA",
-	"SOUTH CALIFORNIA":     "SCA",
-	"COLORADO":             "CO",
-	"CONNECTICUT":          "CT",
-	"DELAWARE":             "DE",
-	"DISTRICT OF COLUMBIA": "DC",
-	"FLORIDA":              "FL",
-	"GEORGIA":              "GA",
-	"HAWAII":               "HI",
-	"IDAHO":                "ID",
-	"ILLINOIS":             "IL",
-	"INDIANA":              "IN",
-	"IOWA":                 "IA",
-	"KANSAS":               "KS",
-	"KENTUCKY":             "KY",
-	"LOUISIANA":            "LA",
-	"MAINE":                "ME",
-	"MARYLAND":             "MD",
-	"MASSACHUSETS":         "MA",
-	"MICHIGAN":             "MI",
-	"MINNESOTA":            "MN",
-	"MISSISSIPPI":          "MS",
-	"MISSOURI":             "MO",
-	"MONTANA":              "MT",
-	"NEBRASKA":             "NE",
-	"NEVADA":               "NV",
-	"NEW HAMPSHIRE":        "NH",
-	"NEW JERSEY":           "NJ",
-	"NEW MEXICO":           "NM",
-	"NEW YORK":             "NY",
-	"NORTH CAROLINA":       "NC",
-	"NORTH DAKOTA":         "ND",
-	"OHIO":                 "OH",
-	"OKLAHOMA":             "OK",
-	"OREGON":               "OR",
-	"PENNSYLVANIA":         "PA",
-	"ROAD ISLAND":          "RI",
-	"SOUTH CAROLINA":       "SC",
-	"SOUTH DAKOTA":         "SD",
-	"TENNESSEE":            "TN",
-	"TEXAS":                "TX",
-	"UTAH":                 "UT",
-	"VERMONT":              "VT",
-	"VIRGINIA":             "VA",
-	"WASHINGTON":           "WA",
-	"WEST VIRGINIA":        "WV",
-	"WISCONSIN":            "WI",
-	"WYOMING":              "WY",
-}
-var stateAbbreviations = func() []string {
-	arr := make([]string, 0, len(stateMapping))
-	for v := range maps.Values(stateMapping) {
-		arr = append(arr, v)
-	}
-
-	return arr
-}()
-var stateNames = func() []string {
-	arr := make([]string, 0, len(stateMapping))
-	for v := range maps.Keys(stateMapping) {
-		arr = append(arr, v)
-	}
-
-	return arr
-}()
 
 func statePrompt() string {
 	translatedState := ""
