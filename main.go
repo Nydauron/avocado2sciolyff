@@ -226,7 +226,7 @@ type sciolyFF struct {
 
 type tournamentMetadata struct {
 	Name      string `yaml:"name"`
-	ShortName string `yaml:"short name"`
+	ShortName string `yaml:"short name,omitempty"`
 	Location  string `yaml:"location"`
 	Level     string `yaml:"level"`
 	State     string `yaml:"state"`
