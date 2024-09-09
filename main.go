@@ -219,9 +219,14 @@ type avogadroEvent struct {
 
 type sciolyFF struct {
 	Tournament tournamentMetadata `yaml:"Tournament"`
+	Tracks     []track            `yaml:"Tracks,omitempty"`
 	Events     []event            `yaml:"Events"`
 	Teams      []school           `yaml:"Teams"`
 	Placings   []placing          `yaml:"Placings"`
+}
+
+type track struct {
+	name string `yaml:"name"`
 }
 
 type tournamentMetadata struct {
@@ -421,7 +426,9 @@ func generateSciolyFF(table table) sciolyFF {
 
 	placings := make([]placing, 0)
 	teamCount := uint(len(table.schools))
+	trackNames := map[string]struct{}{}
 	for _, team := range table.schools {
+		trackNames[team.Track] = struct{}{}
 		for eventIdx, score := range team.Scores {
 			p := placing{Event: events[eventIdx].Name, TeamNumber: team.TeamNumber}
 			switch {
@@ -435,6 +442,12 @@ func generateSciolyFF(table table) sciolyFF {
 		}
 	}
 
+	tracks := []track{}
+
+	for trackName, _ := range trackNames {
+		tracks = append(tracks, track{name: trackName})
+	}
+
 	tournament := tournamentMetadata{
 		Name:      prompt("Tournament name: "),
 		ShortName: prompt("Tournament nickname/short name: "),
@@ -446,7 +459,7 @@ func generateSciolyFF(table table) sciolyFF {
 		Date:      tournamentDatePrompt(),
 	}
 
-	return sciolyFF{Tournament: tournament, Events: events, Teams: table.schools, Placings: placings}
+	return sciolyFF{Tournament: tournament, Tracks: tracks, Events: events, Teams: table.schools, Placings: placings}
 }
 
 func eventDistingushTrialMarkerPrompt(eventName string) bool {
