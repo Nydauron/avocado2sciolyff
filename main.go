@@ -87,6 +87,8 @@ var stateMapping = map[string]string{
 	"WYOMING":              "WY",
 }
 
+var numberRegex = regexp.MustCompile(`[0-9]+`)
+
 var stateAbbreviations = func() []string {
 	arr := make([]string, 0, len(stateMapping))
 	for v := range maps.Values(stateMapping) {
@@ -249,7 +251,7 @@ type event struct {
 
 type placing struct {
 	Event        string `yaml:"event"`
-	TeamNumber   string `yaml:"team"`
+	TeamNumber   uint   `yaml:"team"`
 	Participated bool   `yaml:"participated"`
 	EventDQ      bool   `yaml:"disqualified"`
 	Exempt       bool   `yaml:"exempt"`
@@ -259,7 +261,7 @@ type placing struct {
 }
 
 type school struct {
-	TeamNumber string `yaml:"number"`
+	TeamNumber uint   `yaml:"number"`
 	Name       string `yaml:"school"`
 	Track      string `yaml:"track"`
 	Scores     []uint `yaml:"-"`
@@ -354,7 +356,11 @@ func parseHTML(r io.ReadCloser) (*table, error) {
 			if !isTableHead && isTableCell {
 				switch currentColumn {
 				case 0:
-					bufferSchool.TeamNumber = trimmedData
+					teamNumber, err := strconv.ParseUint(numberRegex.FindString(trimmedData), 10, 16)
+					if err != nil {
+						return nil, err
+					}
+					bufferSchool.TeamNumber = uint(teamNumber)
 				case 1:
 					bufferSchool.Name = trimmedData
 				case 2:
@@ -399,7 +405,7 @@ func parseHTML(r io.ReadCloser) (*table, error) {
 			}
 			if t.Data == "tr" {
 				isTableRow = false
-				if bufferSchool.TeamNumber != "" && bufferSchool.Name != "" {
+				if bufferSchool.TeamNumber != 0 && bufferSchool.Name != "" {
 					table.schools = append(table.schools, bufferSchool)
 				}
 				bufferSchool = school{}
