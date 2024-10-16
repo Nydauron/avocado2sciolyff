@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Nydauron/avogado-to-sciolyff/writers"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/net/html"
 	"gopkg.in/yaml.v3"
@@ -213,11 +214,7 @@ func main() {
 			}
 			var outputWriter io.WriteCloser = os.Stdout
 			if outputLocation != stdoutCLIName {
-				var err error
-				outputWriter, err = os.OpenFile(outputLocation, os.O_CREATE|os.O_WRONLY, 0644)
-				if err != nil {
-					return fmt.Errorf("could not create or open file: %v", err)
-				}
+				outputWriter = writers.NewDelayFileWriter(outputLocation, os.O_CREATE|os.O_WRONLY, 0644)
 			}
 			return cliHandle(inputLocation, outputWriter, isCSV)
 		},
