@@ -226,7 +226,7 @@ type sciolyFF struct {
 }
 
 type track struct {
-	name string `yaml:"name"`
+	Name string `yaml:"name"`
 }
 
 type tournamentMetadata struct {
@@ -444,8 +444,8 @@ func generateSciolyFF(table table) sciolyFF {
 
 	tracks := []track{}
 
-	for trackName, _ := range trackNames {
-		tracks = append(tracks, track{name: trackName})
+	for trackName := range trackNames {
+		tracks = append(tracks, track{Name: trackName})
 	}
 
 	tournament := tournamentMetadata{
