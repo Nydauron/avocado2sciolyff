@@ -26,6 +26,7 @@ const (
 
 	inputFlag     = "input"
 	outputFlag    = "output"
+	csvFlag       = "csv"
 	stdoutCLIName = "-"
 )
 
@@ -107,7 +108,7 @@ var stateNames = func() []string {
 	return arr
 }()
 
-func cliHandle(inputLocation string, outputWriter io.Writer) error {
+func cliHandle(inputLocation string, outputWriter io.Writer, isCSVFile bool) error {
 	var htmlBodyReader io.ReadCloser
 	if u, err := url.ParseRequestURI(inputLocation); err == nil {
 		fmt.Fprintln(os.Stderr, "URL detected")
@@ -137,18 +138,30 @@ func cliHandle(inputLocation string, outputWriter io.Writer) error {
 		return fmt.Errorf("provided input was neither a valid URL or a path to existing file: %v", inputLocation)
 	}
 
-	table, err := parseHTML(htmlBodyReader)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Cell did not contain number: %v\n", err)
-		os.Exit(4)
-		return nil
+	var table *table
+	if isCSVFile {
+		var err error
+		table, err = parseCSV(htmlBodyReader)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Cell did not contain number: %v\n", err)
+			os.Exit(4)
+			return nil
+		}
+	} else {
+		var err error
+		table, err = parseHTML(htmlBodyReader)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Cell did not contain number: %v\n", err)
+			os.Exit(4)
+			return nil
+		}
 	}
 
 	sciolyffDump := generateSciolyFF(*table)
 
 	yamlEncoder := yaml.NewEncoder(outputWriter)
 	yamlEncoder.SetIndent(2)
-	err = yamlEncoder.Encode(&sciolyffDump)
+	err := yamlEncoder.Encode(&sciolyffDump)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Encoding to YAML failed: %v", err)
 		os.Exit(3)
@@ -168,11 +181,17 @@ func cliHandle(inputLocation string, outputWriter io.Writer) error {
 func main() {
 	var inputLocation string
 	var outputLocation = ""
+	var isCSV = false
 	app := &cli.App{
 		Name:    "avocado2sciolyff",
 		Usage:   "A tool to turn table results on Avogadro to sciolyff results",
 		Version: semanticVersion,
 		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:        csvFlag,
+				Usage:       "File passed in is a CSV rather than an HTML file",
+				Destination: &isCSV,
+			},
 			&cli.StringFlag{
 				Name:        inputFlag,
 				Aliases:     []string{"i"},
@@ -200,7 +219,7 @@ func main() {
 					return fmt.Errorf("could not create or open file: %v", err)
 				}
 			}
-			return cliHandle(inputLocation, outputWriter)
+			return cliHandle(inputLocation, outputWriter, isCSV)
 		},
 	}
 
@@ -418,6 +437,93 @@ func parseHTML(r io.ReadCloser) (*table, error) {
 			}
 		}
 	}
+}
+
+const TEAM_NUMER_COL_NAME = ""
+const SCHOOL_COL_NAME = "School"
+const TOTAL_COL_NAME = "Total"
+const PLACE_COL_NAME = "Place"
+const TRIAL_MARKER = "Trial"
+
+func parseCSV(r io.ReadCloser) (*table, error) {
+	buf := bufio.NewReader(r)
+	column_str, err := buf.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+	columns := strings.Split(strings.TrimRight(column_str, "\r\n"), ",")
+	columnCount := len(columns)
+
+	avogadroEvents := []avogadroEvent{}
+	for _, colName := range columns {
+		if colName != TEAM_NUMER_COL_NAME && colName != SCHOOL_COL_NAME && colName != TOTAL_COL_NAME && colName != PLACE_COL_NAME {
+			eventName, hasTrialMarker := strings.CutSuffix(colName, TRIAL_MARKER)
+			event := avogadroEvent{
+				name:            strings.Trim(eventName, " "),
+				isMarkedAsTrial: hasTrialMarker,
+			}
+			avogadroEvents = append(avogadroEvents, event)
+		}
+	}
+
+	parsedTable := table{
+		events:  avogadroEvents,
+		schools: []school{},
+	}
+	for {
+		school := school{}
+		row, err := buf.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return nil, err
+		}
+		if row != "" {
+			cells := strings.Split(strings.TrimRight(row, "\r\n"), ",")
+			cellCount := len(cells)
+			if cellCount != columnCount {
+				return nil, fmt.Errorf("row has different amount of cells than the number of expected column headers: %v", cellCount)
+			}
+			for i, col := range columns {
+				trimmedCell := strings.Trim(cells[i], " ")
+				switch col {
+				case TEAM_NUMER_COL_NAME:
+					// Team number
+					teamNumber, err := strconv.ParseUint(numberRegex.FindString(trimmedCell), 10, 16)
+					if err != nil {
+						return nil, err
+					}
+					school.TeamNumber = uint(teamNumber)
+				case SCHOOL_COL_NAME:
+					// Team name (track if applicable)
+					trackIdx := strings.Index(trimmedCell, "(")
+					teamName := strings.Trim(trimmedCell[:trackIdx], " ")
+					track := ""
+					if trackIdx != -1 {
+						track = strings.Trim(trimmedCell[trackIdx:], " ()")
+					}
+					school.Name = teamName
+					school.Track = track
+				case TOTAL_COL_NAME:
+					// Team score total
+					school.TotalScore = trimmedCell
+				case PLACE_COL_NAME:
+					// Team placement
+					school.Rank = trimmedCell
+				default:
+					score, err := strconv.ParseUint(trimmedCell, 10, 16)
+					if err != nil {
+						return nil, err
+					}
+					school.Scores = append(school.Scores, uint(score))
+				}
+			}
+			parsedTable.schools = append(parsedTable.schools, school)
+		}
+		if err == io.EOF {
+			break
+		}
+	}
+
+	return &parsedTable, nil
 }
 
 func generateSciolyFF(table table) sciolyFF {
