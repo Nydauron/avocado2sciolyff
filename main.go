@@ -165,7 +165,7 @@ func cliHandle(inputLocation string, outputWriter io.Writer) error {
 
 func main() {
 	var inputLocation string
-	var outputLocation string = ""
+	var outputLocation = ""
 	app := &cli.App{
 		Name:    "avocado2sciolyff",
 		Usage:   "A tool to turn table results on Avogadro to sciolyff results",
