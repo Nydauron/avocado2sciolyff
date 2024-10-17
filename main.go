@@ -542,10 +542,11 @@ func generateSciolyFF(table table) sciolyFF {
 		trackNames[team.Track] = struct{}{}
 		for eventIdx, score := range team.Scores {
 			p := placing{Event: events[eventIdx].Name, TeamNumber: team.TeamNumber}
-			switch {
-			case score == teamCount: // P
-				p.Participated = true
-			case score >= teamCount+2: // DQ
+			p.Participated = true
+			if score >= teamCount+1 { // NS
+				p.Participated = false
+			}
+			if score >= teamCount+2 { // DQ
 				p.EventDQ = true
 			}
 			p.Place = score
