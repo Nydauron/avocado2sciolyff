@@ -9,15 +9,15 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Nydauron/avogado-to-sciolyff/parsers"
+	"github.com/Nydauron/avogado-to-sciolyff/sciolyff"
 	"github.com/Nydauron/avogado-to-sciolyff/writers"
 	"github.com/urfave/cli/v2"
-	"golang.org/x/net/html"
 	"gopkg.in/yaml.v3"
 )
 
@@ -89,8 +89,6 @@ var stateMapping = map[string]string{
 	"WYOMING":              "WY",
 }
 
-var numberRegex = regexp.MustCompile(`[0-9]+`)
-
 var stateAbbreviations = func() []string {
 	arr := make([]string, 0, len(stateMapping))
 	for v := range maps.Values(stateMapping) {
@@ -139,10 +137,10 @@ func cliHandle(inputLocation string, outputWriter io.Writer, isCSVFile bool) err
 		return fmt.Errorf("provided input was neither a valid URL or a path to existing file: %v", inputLocation)
 	}
 
-	var table *table
+	var table *parsers.Table
 	if isCSVFile {
 		var err error
-		table, err = parseCSV(htmlBodyReader)
+		table, err = parsers.ParseCSV(htmlBodyReader)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Cell did not contain number: %v\n", err)
 			os.Exit(4)
@@ -150,7 +148,7 @@ func cliHandle(inputLocation string, outputWriter io.Writer, isCSVFile bool) err
 		}
 	} else {
 		var err error
-		table, err = parseHTML(htmlBodyReader)
+		table, err = parsers.ParseHTML(htmlBodyReader)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Cell did not contain number: %v\n", err)
 			os.Exit(4)
@@ -227,321 +225,23 @@ func main() {
 	}
 }
 
-type table struct {
-	events  []avogadroEvent
-	schools []school
-}
-
-type avogadroEvent struct {
-	name            string
-	isMarkedAsTrial bool
-}
-
-type sciolyFF struct {
-	Tournament tournamentMetadata `yaml:"Tournament"`
-	Tracks     []track            `yaml:"Tracks,omitempty"`
-	Events     []event            `yaml:"Events"`
-	Teams      []school           `yaml:"Teams"`
-	Placings   []placing          `yaml:"Placings"`
-}
-
-type track struct {
-	Name string `yaml:"name"`
-}
-
-type tournamentMetadata struct {
-	Name      string `yaml:"name"`
-	ShortName string `yaml:"short name,omitempty"`
-	Location  string `yaml:"location"`
-	Level     string `yaml:"level"`
-	State     string `yaml:"state"`
-	Division  string `yaml:"division"`
-	Year      int    `yaml:"year"`
-	Date      string `yaml:"date"`
-}
-
-type event struct {
-	Name               string `yaml:"name"`
-	IsTrial            bool   `yaml:"trial"`
-	TrialedNormalEvent bool   `yaml:"trialed"`
-	ScoringObjective   string `yaml:"scoring,omitempty"`
-}
-
-type placing struct {
-	Event        string `yaml:"event"`
-	TeamNumber   uint   `yaml:"team"`
-	Participated bool   `yaml:"participated"`
-	EventDQ      bool   `yaml:"disqualified"`
-	Exempt       bool   `yaml:"exempt"`
-	Unknown      bool   `yaml:"unknown"`
-	Tie          bool   `yaml:"tie"`
-	Place        uint   `yaml:"place"`
-}
-
-type school struct {
-	TeamNumber uint   `yaml:"number"`
-	Name       string `yaml:"school"`
-	Track      string `yaml:"track"`
-	Scores     []uint `yaml:"-"`
-	TotalScore string `yaml:"-"`
-	Rank       string `yaml:"-"`
-}
-
-func parseHTML(r io.ReadCloser) (*table, error) {
-	z := html.NewTokenizer(r)
-	table := table{}
-	isTable := false
-
-	isProcessingEventHeader := false
-	isEventName := false
-	isEventPotentialTrial := false
-
-	isTableHead := false
-	isTableRow := false
-	isTableCell := false
-	eventCount := 0
-	currentColumn := 0
-	bufferSchool := school{}
-	bufferEvent := avogadroEvent{}
-	for {
-		tt := z.Next()
-		switch tt {
-		case html.ErrorToken:
-			return &table, nil
-		case html.StartTagToken:
-			t := z.Token()
-			switch t.Data {
-			case "span":
-				if isProcessingEventHeader {
-					for _, attr := range t.Attr {
-						if attr.Key == "class" {
-							classLabelWarningRegex := regexp.MustCompile(`\blabel-warning\b`)
-							isEventPotentialTrial = classLabelWarningRegex.MatchString(attr.Val)
-						}
-					}
-				}
-				continue
-			case "a":
-				if isProcessingEventHeader {
-					isEventName = true
-				}
-				continue
-			}
-			isTableCell = isTableRow && (t.Data == "th" || t.Data == "td")
-			if isTableCell {
-				if t.Data == "th" {
-					for _, attr := range t.Attr {
-						if attr.Key == "class" {
-							classRegex := regexp.MustCompile(`\brotated\b`)
-							isProcessingEventHeader = classRegex.MatchString(attr.Val)
-						}
-					}
-				}
-				continue
-			}
-			isTableRow = isTable && t.Data == "tr"
-			if isTableRow {
-				currentColumn = 0
-				bufferSchool = school{}
-				continue
-			}
-			isTableHead = isTable && t.Data == "thead"
-			if isTableHead {
-				continue
-			}
-			if t.Data == "table" {
-				for _, attr := range t.Attr {
-					if attr.Key == "class" {
-						classRegex := regexp.MustCompile(`\bresults-table\b`)
-						isTable = classRegex.MatchString(attr.Val)
-					}
-				}
-				continue
-			}
-
-		case html.TextToken:
-			t := z.Token()
-			trimmedData := strings.Trim(t.Data, " ")
-			if isEventName {
-				bufferEvent.name = trimmedData
-				continue
-			}
-			if isEventPotentialTrial {
-				if strings.Contains(trimmedData, "Trial") {
-					bufferEvent.isMarkedAsTrial = true
-				}
-			}
-			if !isTableHead && isTableCell {
-				switch currentColumn {
-				case 0:
-					teamNumber, err := strconv.ParseUint(numberRegex.FindString(trimmedData), 10, 16)
-					if err != nil {
-						return nil, err
-					}
-					bufferSchool.TeamNumber = uint(teamNumber)
-				case 1:
-					bufferSchool.Name = trimmedData
-				case 2:
-					bufferSchool.Track = strings.Trim(trimmedData, "()")
-				case 2 + eventCount + 1:
-					bufferSchool.TotalScore = trimmedData
-				case 2 + eventCount + 2:
-					bufferSchool.Rank = trimmedData
-				default:
-					place, err := strconv.ParseUint(trimmedData, 10, 8)
-					if err != nil {
-						return nil, err
-					}
-					bufferSchool.Scores = append(bufferSchool.Scores, uint(place))
-				}
-				currentColumn++
-			}
-		case html.EndTagToken:
-			t := z.Token()
-			if t.Data == "a" {
-				isEventName = false
-				continue
-			}
-			if t.Data == "span" {
-				isEventPotentialTrial = false
-				continue
-			}
-			if t.Data == "th" {
-				if isProcessingEventHeader && isTableHead {
-					table.events = append(table.events, bufferEvent)
-					eventCount = len(table.events)
-					bufferEvent = avogadroEvent{}
-				}
-				isProcessingEventHeader = false
-				isEventPotentialTrial = false
-				isEventName = false
-				continue
-			}
-			if t.Data == "th" || t.Data == "td" {
-				isTableCell = false
-				continue
-			}
-			if t.Data == "tr" {
-				isTableRow = false
-				if bufferSchool.TeamNumber != 0 && bufferSchool.Name != "" {
-					table.schools = append(table.schools, bufferSchool)
-				}
-				bufferSchool = school{}
-				currentColumn = 0
-				continue
-			}
-			if t.Data == "table" {
-				isTable = false
-				continue
-			}
-		}
-	}
-}
-
-const TEAM_NUMER_COL_NAME = ""
-const SCHOOL_COL_NAME = "School"
-const TOTAL_COL_NAME = "Total"
-const PLACE_COL_NAME = "Place"
-const TRIAL_MARKER = "Trial"
-
-func parseCSV(r io.ReadCloser) (*table, error) {
-	buf := bufio.NewReader(r)
-	column_str, err := buf.ReadString('\n')
-	if err != nil {
-		return nil, err
-	}
-	columns := strings.Split(strings.TrimRight(column_str, "\r\n"), ",")
-	columnCount := len(columns)
-
-	avogadroEvents := []avogadroEvent{}
-	for _, colName := range columns {
-		if colName != TEAM_NUMER_COL_NAME && colName != SCHOOL_COL_NAME && colName != TOTAL_COL_NAME && colName != PLACE_COL_NAME {
-			eventName, hasTrialMarker := strings.CutSuffix(colName, TRIAL_MARKER)
-			event := avogadroEvent{
-				name:            strings.Trim(eventName, " "),
-				isMarkedAsTrial: hasTrialMarker,
-			}
-			avogadroEvents = append(avogadroEvents, event)
-		}
-	}
-
-	parsedTable := table{
-		events:  avogadroEvents,
-		schools: []school{},
-	}
-	for {
-		school := school{}
-		row, err := buf.ReadString('\n')
-		if err != nil && err != io.EOF {
-			return nil, err
-		}
-		if row != "" {
-			cells := strings.Split(strings.TrimRight(row, "\r\n"), ",")
-			cellCount := len(cells)
-			if cellCount != columnCount {
-				return nil, fmt.Errorf("row has different amount of cells than the number of expected column headers: %v", cellCount)
-			}
-			for i, col := range columns {
-				trimmedCell := strings.Trim(cells[i], " ")
-				switch col {
-				case TEAM_NUMER_COL_NAME:
-					// Team number
-					teamNumber, err := strconv.ParseUint(numberRegex.FindString(trimmedCell), 10, 16)
-					if err != nil {
-						return nil, err
-					}
-					school.TeamNumber = uint(teamNumber)
-				case SCHOOL_COL_NAME:
-					// Team name (track if applicable)
-					trackIdx := strings.Index(trimmedCell, "(")
-					teamName := strings.Trim(trimmedCell[:trackIdx], " ")
-					track := ""
-					if trackIdx != -1 {
-						track = strings.Trim(trimmedCell[trackIdx:], " ()")
-					}
-					school.Name = teamName
-					school.Track = track
-				case TOTAL_COL_NAME:
-					// Team score total
-					school.TotalScore = trimmedCell
-				case PLACE_COL_NAME:
-					// Team placement
-					school.Rank = trimmedCell
-				default:
-					score, err := strconv.ParseUint(trimmedCell, 10, 16)
-					if err != nil {
-						return nil, err
-					}
-					school.Scores = append(school.Scores, uint(score))
-				}
-			}
-			parsedTable.schools = append(parsedTable.schools, school)
-		}
-		if err == io.EOF {
-			break
-		}
-	}
-
-	return &parsedTable, nil
-}
-
-func generateSciolyFF(table table) sciolyFF {
-	events := make([]event, 0)
-	for _, e := range table.events {
+func generateSciolyFF(table parsers.Table) sciolyff.SciolyFF {
+	events := make([]sciolyff.Event, 0)
+	for _, e := range table.Events {
 		isEventTrialEvent := false
-		if e.isMarkedAsTrial {
-			isEventTrialEvent = eventDistingushTrialMarkerPrompt(e.name)
+		if e.IsMarkedAsTrial {
+			isEventTrialEvent = eventDistingushTrialMarkerPrompt(e.Name)
 		}
-		events = append(events, event{Name: e.name, IsTrial: e.isMarkedAsTrial && isEventTrialEvent, TrialedNormalEvent: e.isMarkedAsTrial && !isEventTrialEvent})
+		events = append(events, sciolyff.Event{Name: e.Name, IsTrial: e.IsMarkedAsTrial && isEventTrialEvent, TrialedNormalEvent: e.IsMarkedAsTrial && !isEventTrialEvent})
 	}
 
-	placings := make([]placing, 0)
-	teamCount := uint(len(table.schools))
+	placings := make([]*sciolyff.Placing, 0)
+	teamCount := uint(len(table.Schools))
 	trackNames := map[string]struct{}{}
-	for _, team := range table.schools {
+	for _, team := range table.Schools {
 		trackNames[team.Track] = struct{}{}
 		for eventIdx, score := range team.Scores {
-			p := placing{Event: events[eventIdx].Name, TeamNumber: team.TeamNumber}
+			p := sciolyff.Placing{Event: events[eventIdx].Name, TeamNumber: team.TeamNumber}
 			p.Participated = true
 			if score >= teamCount+1 { // NS
 				p.Participated = false
@@ -554,13 +254,13 @@ func generateSciolyFF(table table) sciolyFF {
 		}
 	}
 
-	tracks := []track{}
+	tracks := []sciolyff.Track{}
 
 	for trackName := range trackNames {
-		tracks = append(tracks, track{Name: trackName})
+		tracks = append(tracks, sciolyff.Track{Name: trackName})
 	}
 
-	tournament := tournamentMetadata{
+	tournament := sciolyff.TournamentMetadata{
 		Name:      prompt("Tournament name: "),
 		ShortName: prompt("Tournament nickname/short name: "),
 		Location:  prompt("Tournament location (host building/campus): "),
@@ -571,7 +271,7 @@ func generateSciolyFF(table table) sciolyFF {
 		Date:      tournamentDatePrompt(),
 	}
 
-	return sciolyFF{Tournament: tournament, Tracks: tracks, Events: events, Teams: table.schools, Placings: placings}
+	return sciolyff.SciolyFF{Tournament: tournament, Tracks: tracks, Events: events, Teams: table.Schools, Placings: placings}
 }
 
 func eventDistingushTrialMarkerPrompt(eventName string) bool {
