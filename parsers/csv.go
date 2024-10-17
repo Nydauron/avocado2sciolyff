@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Nydauron/avogado-to-sciolyff/sciolyff"
+	sciolyff_models "github.com/Nydauron/avogado-to-sciolyff/sciolyff/models"
 )
 
 const TEAM_NUMER_COL_NAME = ""
@@ -30,19 +30,19 @@ func ParseCSV(r io.ReadCloser) (*Table, error) {
 		if colName != TEAM_NUMER_COL_NAME && colName != SCHOOL_COL_NAME && colName != TOTAL_COL_NAME && colName != PLACE_COL_NAME {
 			eventName, hasTrialMarker := strings.CutSuffix(colName, TRIAL_MARKER)
 			event := AvogadroEvent{
-				name:            strings.Trim(eventName, " "),
-				isMarkedAsTrial: hasTrialMarker,
+				Name:            strings.Trim(eventName, " "),
+				IsMarkedAsTrial: hasTrialMarker,
 			}
 			avogadroEvents = append(avogadroEvents, event)
 		}
 	}
 
 	parsedTable := Table{
-		events:  avogadroEvents,
-		schools: []sciolyff.School{},
+		Events:  avogadroEvents,
+		Schools: []sciolyff_models.School{},
 	}
 	for {
-		school := sciolyff.School{}
+		school := sciolyff_models.School{}
 		row, err := buf.ReadString('\n')
 		if err != nil && err != io.EOF {
 			return nil, err
@@ -87,7 +87,7 @@ func ParseCSV(r io.ReadCloser) (*Table, error) {
 					school.Scores = append(school.Scores, uint(score))
 				}
 			}
-			parsedTable.schools = append(parsedTable.schools, school)
+			parsedTable.Schools = append(parsedTable.Schools, school)
 		}
 		if err == io.EOF {
 			break

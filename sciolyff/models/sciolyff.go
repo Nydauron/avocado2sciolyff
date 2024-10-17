@@ -1,4 +1,4 @@
-package sciolyff
+package sciolyff_models
 
 type SciolyFF struct {
 	Tournament TournamentMetadata `yaml:"Tournament"`

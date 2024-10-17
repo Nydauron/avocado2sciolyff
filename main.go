@@ -1,18 +1,12 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"log"
-	"maps"
 	"net/http"
 	"net/url"
 	"os"
-	"slices"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/Nydauron/avogado-to-sciolyff/parsers"
 	"github.com/Nydauron/avogado-to-sciolyff/sciolyff"
@@ -22,9 +16,6 @@ import (
 )
 
 const (
-	eventIsTrial    = true
-	eventWasTrialed = false
-
 	inputFlag     = "input"
 	outputFlag    = "output"
 	csvFlag       = "csv"
@@ -33,79 +24,6 @@ const (
 
 var build string
 var semanticVersion = "v0.1.0-dev" + build
-
-var stateMapping = map[string]string{
-	"ALABAMA":              "AL",
-	"ALASKA":               "AK",
-	"ARIZONA":              "AZ",
-	"ARKANSAS":             "AR",
-	"NORTH CALIFORNIA":     "NCA",
-	"SOUTH CALIFORNIA":     "SCA",
-	"COLORADO":             "CO",
-	"CONNECTICUT":          "CT",
-	"DELAWARE":             "DE",
-	"DISTRICT OF COLUMBIA": "DC",
-	"FLORIDA":              "FL",
-	"GEORGIA":              "GA",
-	"HAWAII":               "HI",
-	"IDAHO":                "ID",
-	"ILLINOIS":             "IL",
-	"INDIANA":              "IN",
-	"IOWA":                 "IA",
-	"KANSAS":               "KS",
-	"KENTUCKY":             "KY",
-	"LOUISIANA":            "LA",
-	"MAINE":                "ME",
-	"MARYLAND":             "MD",
-	"MASSACHUSETS":         "MA",
-	"MICHIGAN":             "MI",
-	"MINNESOTA":            "MN",
-	"MISSISSIPPI":          "MS",
-	"MISSOURI":             "MO",
-	"MONTANA":              "MT",
-	"NEBRASKA":             "NE",
-	"NEVADA":               "NV",
-	"NEW HAMPSHIRE":        "NH",
-	"NEW JERSEY":           "NJ",
-	"NEW MEXICO":           "NM",
-	"NEW YORK":             "NY",
-	"NORTH CAROLINA":       "NC",
-	"NORTH DAKOTA":         "ND",
-	"OHIO":                 "OH",
-	"OKLAHOMA":             "OK",
-	"OREGON":               "OR",
-	"PENNSYLVANIA":         "PA",
-	"ROAD ISLAND":          "RI",
-	"SOUTH CAROLINA":       "SC",
-	"SOUTH DAKOTA":         "SD",
-	"TENNESSEE":            "TN",
-	"TEXAS":                "TX",
-	"UTAH":                 "UT",
-	"VERMONT":              "VT",
-	"VIRGINIA":             "VA",
-	"WASHINGTON":           "WA",
-	"WEST VIRGINIA":        "WV",
-	"WISCONSIN":            "WI",
-	"WYOMING":              "WY",
-}
-
-var stateAbbreviations = func() []string {
-	arr := make([]string, 0, len(stateMapping))
-	for v := range maps.Values(stateMapping) {
-		arr = append(arr, v)
-	}
-
-	return arr
-}()
-
-var stateNames = func() []string {
-	arr := make([]string, 0, len(stateMapping))
-	for v := range maps.Keys(stateMapping) {
-		arr = append(arr, v)
-	}
-
-	return arr
-}()
 
 func cliHandle(inputLocation string, outputWriter io.Writer, isCSVFile bool) error {
 	var htmlBodyReader io.ReadCloser
@@ -156,7 +74,7 @@ func cliHandle(inputLocation string, outputWriter io.Writer, isCSVFile bool) err
 		}
 	}
 
-	sciolyffDump := generateSciolyFF(*table)
+	sciolyffDump := sciolyff.GenerateSciolyFF(*table)
 
 	yamlEncoder := yaml.NewEncoder(outputWriter)
 	yamlEncoder.SetIndent(2)
@@ -223,213 +141,4 @@ func main() {
 	if err := app.Run(os.Args); err != nil {
 		log.Fatal(err)
 	}
-}
-
-func generateSciolyFF(table parsers.Table) sciolyff.SciolyFF {
-	events := make([]sciolyff.Event, 0)
-	for _, e := range table.Events {
-		isEventTrialEvent := false
-		if e.IsMarkedAsTrial {
-			isEventTrialEvent = eventDistingushTrialMarkerPrompt(e.Name)
-		}
-		events = append(events, sciolyff.Event{Name: e.Name, IsTrial: e.IsMarkedAsTrial && isEventTrialEvent, TrialedNormalEvent: e.IsMarkedAsTrial && !isEventTrialEvent})
-	}
-
-	isTrackPlaceCalculationAllowed := allowCalculationTrackPlaceFromOverallPrompt()
-
-	placings := make([]*sciolyff.Placing, 0)
-	teamCount := uint(len(table.Schools))
-	trackNames := map[string]struct{}{}
-	placingsByEventByTrack := make([]map[string][]*sciolyff.Placing, len(events))
-	for _, team := range table.Schools {
-		trackNames[team.Track] = struct{}{}
-		if len(events) != len(team.Scores) {
-			panic(fmt.Sprintf("Score array for team \"%s\" is not the same size as number of events (%d events, %d scores)", team.Name, len(events), len(team.Scores)))
-		}
-		for eventIdx, score := range team.Scores {
-			p := sciolyff.Placing{Event: events[eventIdx].Name, TeamNumber: team.TeamNumber}
-			p.Participated = true
-			if score >= teamCount+1 { // NS
-				p.Participated = false
-			}
-			if score >= teamCount+2 { // DQ
-				p.EventDQ = true
-			}
-			p.Place = score
-			placings = append(placings, &p)
-
-			if placingsByEventByTrack[eventIdx] == nil {
-				placingsByEventByTrack[eventIdx] = make(map[string][]*sciolyff.Placing)
-			}
-			if _, ok := placingsByEventByTrack[eventIdx][team.Track]; !ok {
-				placingsByEventByTrack[eventIdx][team.Track] = []*sciolyff.Placing{}
-			}
-
-			placingsByEventByTrack[eventIdx][team.Track] = append(placingsByEventByTrack[eventIdx][team.Track], placings[len(placings)-1])
-		}
-	}
-	if isTrackPlaceCalculationAllowed {
-		for _, eventPlacingsByTrack := range placingsByEventByTrack {
-			for _, placings := range eventPlacingsByTrack {
-				slices.SortFunc(placings, func(a, b *sciolyff.Placing) int {
-					if !a.EventDQ && b.EventDQ {
-						return -1
-					}
-					if !b.EventDQ && a.EventDQ {
-						return 1
-					}
-					if a.EventDQ && b.EventDQ {
-						return 0
-					}
-					if a.Participated && !b.Participated {
-						return -1
-					}
-					if b.Participated && !a.Participated {
-						return 1
-					}
-					if !a.Participated && !b.Participated {
-						return 0
-					}
-					return int(a.Place) - int(b.Place)
-				})
-
-				for i, p := range placings {
-					if !p.Participated {
-						if p.EventDQ {
-							p.TrackPlace = uint(len(placings)) + 2
-						} else {
-							p.TrackPlace = uint(len(placings)) + 1
-						}
-						continue
-					}
-					p.TrackPlace = uint(i + 1)
-				}
-			}
-		}
-	}
-
-	tracks := []sciolyff.Track{}
-
-	for trackName := range trackNames {
-		tracks = append(tracks, sciolyff.Track{Name: trackName})
-	}
-
-	tournament := sciolyff.TournamentMetadata{
-		Name:      prompt("Tournament name: "),
-		ShortName: prompt("Tournament nickname/short name: "),
-		Location:  prompt("Tournament location (host building/campus): "),
-		Level:     tournamentLevelPrompt(),
-		State:     statePrompt(),
-		Division:  tournamentDivisionPrompt(),
-		Year:      rulesYearPrompt(),
-		Date:      tournamentDatePrompt(),
-	}
-
-	copy_of_placings := make([]sciolyff.Placing, len(placings))
-	for i, p := range placings {
-		copy_of_placings[i] = *p
-	}
-	return sciolyff.SciolyFF{Tournament: tournament, Tracks: tracks, Events: events, Teams: table.Schools, Placings: copy_of_placings}
-}
-
-func eventDistingushTrialMarkerPrompt(eventName string) bool {
-	for {
-		userInput := prompt(fmt.Sprintf("Event %s had a trial marker. Was this event a trial event (1) or was the event trialed (2)? ", eventName))
-		if userSelection, err := strconv.ParseInt(userInput, 10, 8); err == nil {
-			switch userSelection {
-			case 1:
-				return eventIsTrial
-			case 2:
-				return eventWasTrialed
-			}
-		}
-	}
-}
-
-func tournamentDatePrompt() string {
-	for {
-		userInput := prompt("Tournament date: ")
-		_, err := time.Parse(time.DateOnly, userInput)
-		if err == nil {
-			return userInput
-		}
-	}
-}
-
-func rulesYearPrompt() int {
-	for {
-		userInput := prompt("Rules Year: ")
-		parsedYear, err := strconv.Atoi(userInput)
-		if err == nil {
-			return parsedYear
-		}
-	}
-}
-
-func tournamentDivisionPrompt() string {
-	translatedDivision := ""
-	for translatedDivision == "" {
-		userInput := strings.ToUpper(prompt("Tournament division (a, b, c): "))
-		if userInput[0] >= 'A' || userInput[0] <= 'C' {
-			translatedDivision = userInput[:1]
-		}
-	}
-	return translatedDivision
-}
-
-func tournamentLevelPrompt() string {
-	translatedLevel := ""
-	for translatedLevel == "" {
-		userInput := prompt("Tournament level (i, r, s, n): ")
-		translatedLevel = translateLevelAbbrevToFull(strings.ToLower(userInput)[0])
-	}
-	return translatedLevel
-}
-
-func statePrompt() string {
-	translatedState := ""
-	for translatedState == "" {
-		userInput := strings.ToUpper(prompt("State: "))
-		if slices.Contains(stateAbbreviations, userInput) {
-			translatedState = userInput
-		} else if slices.Contains(stateNames, userInput) {
-			translatedState = stateMapping[userInput]
-		}
-	}
-	return translatedState
-}
-
-func translateLevelAbbrevToFull(a byte) string {
-	switch a {
-	case 'i':
-		return "Invitational"
-	case 'r':
-		return "Regionals"
-	case 's':
-		return "States"
-	case 'n':
-		return "Nationals"
-	default:
-		return ""
-	}
-}
-
-func allowCalculationTrackPlaceFromOverallPrompt() bool {
-	for {
-		userInput := prompt("Calculate track placements based on overall score? (y/N) ")
-		userInput = strings.ToLower(userInput)
-		if userInput == "y" {
-			return true
-		}
-		if userInput == "n" || userInput == "" {
-			return false
-		}
-	}
-}
-
-func prompt(message string) string {
-	fmt.Fprint(os.Stderr, message)
-	buf := bufio.NewReader(os.Stdin)
-	input, _ := buf.ReadString('\n')
-	return strings.TrimRight(input, "\n")
 }

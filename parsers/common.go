@@ -3,14 +3,14 @@ package parsers
 import (
 	"regexp"
 
-	"github.com/Nydauron/avogado-to-sciolyff/sciolyff"
+	sciolyff_models "github.com/Nydauron/avogado-to-sciolyff/sciolyff/models"
 )
 
 var numberRegex = regexp.MustCompile(`[0-9]+`)
 
 type Table struct {
 	Events  []AvogadroEvent
-	Schools []sciolyff.School
+	Schools []sciolyff_models.School
 }
 
 type AvogadroEvent struct {

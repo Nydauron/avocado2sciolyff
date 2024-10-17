@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Nydauron/avogado-to-sciolyff/sciolyff"
+	sciolyff_models "github.com/Nydauron/avogado-to-sciolyff/sciolyff/models"
 	"golang.org/x/net/html"
 )
 
@@ -24,7 +24,7 @@ func ParseHTML(r io.ReadCloser) (*Table, error) {
 	isTableCell := false
 	eventCount := 0
 	currentColumn := 0
-	bufferSchool := sciolyff.School{}
+	bufferSchool := sciolyff_models.School{}
 	bufferEvent := AvogadroEvent{}
 	for {
 		tt := z.Next()
@@ -65,7 +65,7 @@ func ParseHTML(r io.ReadCloser) (*Table, error) {
 			isTableRow = isTable && t.Data == "tr"
 			if isTableRow {
 				currentColumn = 0
-				bufferSchool = sciolyff.School{}
+				bufferSchool = sciolyff_models.School{}
 				continue
 			}
 			isTableHead = isTable && t.Data == "thead"
@@ -86,12 +86,12 @@ func ParseHTML(r io.ReadCloser) (*Table, error) {
 			t := z.Token()
 			trimmedData := strings.Trim(t.Data, " ")
 			if isEventName {
-				bufferEvent.name = trimmedData
+				bufferEvent.Name = trimmedData
 				continue
 			}
 			if isEventPotentialTrial {
 				if strings.Contains(trimmedData, "Trial") {
-					bufferEvent.isMarkedAsTrial = true
+					bufferEvent.IsMarkedAsTrial = true
 				}
 			}
 			if !isTableHead && isTableCell {
@@ -131,8 +131,8 @@ func ParseHTML(r io.ReadCloser) (*Table, error) {
 			}
 			if t.Data == "th" {
 				if isProcessingEventHeader && isTableHead {
-					table.events = append(table.events, bufferEvent)
-					eventCount = len(table.events)
+					table.Events = append(table.Events, bufferEvent)
+					eventCount = len(table.Events)
 					bufferEvent = AvogadroEvent{}
 				}
 				isProcessingEventHeader = false
@@ -147,9 +147,9 @@ func ParseHTML(r io.ReadCloser) (*Table, error) {
 			if t.Data == "tr" {
 				isTableRow = false
 				if bufferSchool.TeamNumber != 0 && bufferSchool.Name != "" {
-					table.schools = append(table.schools, bufferSchool)
+					table.Schools = append(table.Schools, bufferSchool)
 				}
-				bufferSchool = sciolyff.School{}
+				bufferSchool = sciolyff_models.School{}
 				currentColumn = 0
 				continue
 			}
