@@ -39,6 +39,7 @@ type Placing struct {
 	Unknown      bool   `yaml:"unknown"`
 	Tie          bool   `yaml:"tie"`
 	Place        uint   `yaml:"place"`
+	TrackPlace   uint   `yaml:"track place,omitempty"`
 }
 
 type School struct {

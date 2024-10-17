@@ -235,11 +235,17 @@ func generateSciolyFF(table parsers.Table) sciolyff.SciolyFF {
 		events = append(events, sciolyff.Event{Name: e.Name, IsTrial: e.IsMarkedAsTrial && isEventTrialEvent, TrialedNormalEvent: e.IsMarkedAsTrial && !isEventTrialEvent})
 	}
 
+	isTrackPlaceCalculationAllowed := allowCalculationTrackPlaceFromOverallPrompt()
+
 	placings := make([]*sciolyff.Placing, 0)
 	teamCount := uint(len(table.Schools))
 	trackNames := map[string]struct{}{}
+	placingsByEventByTrack := make([]map[string][]*sciolyff.Placing, len(events))
 	for _, team := range table.Schools {
 		trackNames[team.Track] = struct{}{}
+		if len(events) != len(team.Scores) {
+			panic(fmt.Sprintf("Score array for team \"%s\" is not the same size as number of events (%d events, %d scores)", team.Name, len(events), len(team.Scores)))
+		}
 		for eventIdx, score := range team.Scores {
 			p := sciolyff.Placing{Event: events[eventIdx].Name, TeamNumber: team.TeamNumber}
 			p.Participated = true
@@ -250,7 +256,55 @@ func generateSciolyFF(table parsers.Table) sciolyff.SciolyFF {
 				p.EventDQ = true
 			}
 			p.Place = score
-			placings = append(placings, p)
+			placings = append(placings, &p)
+
+			if placingsByEventByTrack[eventIdx] == nil {
+				placingsByEventByTrack[eventIdx] = make(map[string][]*sciolyff.Placing)
+			}
+			if _, ok := placingsByEventByTrack[eventIdx][team.Track]; !ok {
+				placingsByEventByTrack[eventIdx][team.Track] = []*sciolyff.Placing{}
+			}
+
+			placingsByEventByTrack[eventIdx][team.Track] = append(placingsByEventByTrack[eventIdx][team.Track], placings[len(placings)-1])
+		}
+	}
+	if isTrackPlaceCalculationAllowed {
+		for _, eventPlacingsByTrack := range placingsByEventByTrack {
+			for _, placings := range eventPlacingsByTrack {
+				slices.SortFunc(placings, func(a, b *sciolyff.Placing) int {
+					if !a.EventDQ && b.EventDQ {
+						return -1
+					}
+					if !b.EventDQ && a.EventDQ {
+						return 1
+					}
+					if a.EventDQ && b.EventDQ {
+						return 0
+					}
+					if a.Participated && !b.Participated {
+						return -1
+					}
+					if b.Participated && !a.Participated {
+						return 1
+					}
+					if !a.Participated && !b.Participated {
+						return 0
+					}
+					return int(a.Place) - int(b.Place)
+				})
+
+				for i, p := range placings {
+					if !p.Participated {
+						if p.EventDQ {
+							p.TrackPlace = uint(len(placings)) + 2
+						} else {
+							p.TrackPlace = uint(len(placings)) + 1
+						}
+						continue
+					}
+					p.TrackPlace = uint(i + 1)
+				}
+			}
 		}
 	}
 
@@ -271,7 +325,11 @@ func generateSciolyFF(table parsers.Table) sciolyff.SciolyFF {
 		Date:      tournamentDatePrompt(),
 	}
 
-	return sciolyff.SciolyFF{Tournament: tournament, Tracks: tracks, Events: events, Teams: table.Schools, Placings: placings}
+	copy_of_placings := make([]sciolyff.Placing, len(placings))
+	for i, p := range placings {
+		copy_of_placings[i] = *p
+	}
+	return sciolyff.SciolyFF{Tournament: tournament, Tracks: tracks, Events: events, Teams: table.Schools, Placings: copy_of_placings}
 }
 
 func eventDistingushTrialMarkerPrompt(eventName string) bool {
@@ -353,6 +411,19 @@ func translateLevelAbbrevToFull(a byte) string {
 		return "Nationals"
 	default:
 		return ""
+	}
+}
+
+func allowCalculationTrackPlaceFromOverallPrompt() bool {
+	for {
+		userInput := prompt("Calculate track placements based on overall score? (y/N) ")
+		userInput = strings.ToLower(userInput)
+		if userInput == "y" {
+			return true
+		}
+		if userInput == "n" || userInput == "" {
+			return false
+		}
 	}
 }
 
