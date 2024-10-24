@@ -12,7 +12,8 @@ type LazyFileWriteCloser struct {
 	writer io.WriteCloser
 }
 
-// Creates a new LazyWriterCloser. Arguments are similar to os.OpenFile().
+// Creates a new `LazyWriterCloser`. An initialization function is passed and is
+// called once when the `LazyWriteCloser` is written to.
 func NewLazyWriteCloser(init func() (io.WriteCloser, error)) *LazyFileWriteCloser {
 	return &LazyFileWriteCloser{init: init, writer: nil}
 }
