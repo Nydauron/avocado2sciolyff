@@ -1,9 +1,7 @@
 package writers
 
 import (
-	"fmt"
 	"io"
-	"os"
 )
 
 // Delays initialization until the writer is written to
@@ -27,13 +25,7 @@ func (f *LazyFileWriteCloser) Write(p []byte) (int, error) {
 		}
 	}
 
-	s, err := f.writer.Write(p)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error while writing: %v\n", err)
-	} else {
-		fmt.Fprintf(os.Stderr, "Size written: %d\n", s)
-	}
-	return s, err
+	return f.writer.Write(p)
 }
 
 func (f *LazyFileWriteCloser) Close() error {
