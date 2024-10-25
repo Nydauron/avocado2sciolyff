@@ -9,9 +9,9 @@ import (
 	"os"
 	"sync"
 
-	"github.com/Nydauron/avogado-to-sciolyff/parsers"
-	"github.com/Nydauron/avogado-to-sciolyff/sciolyff"
-	"github.com/Nydauron/avogado-to-sciolyff/writers"
+	"github.com/Nydauron/avocado2sciolyff/parsers"
+	"github.com/Nydauron/avocado2sciolyff/sciolyff"
+	"github.com/Nydauron/avocado2sciolyff/writers"
 	"github.com/urfave/cli/v2"
 	"gopkg.in/yaml.v3"
 )

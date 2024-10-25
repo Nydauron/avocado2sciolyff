@@ -5,9 +5,9 @@ import (
 	"os"
 	"slices"
 
-	"github.com/Nydauron/avogado-to-sciolyff/parsers"
-	"github.com/Nydauron/avogado-to-sciolyff/prompts"
-	sciolyff_models "github.com/Nydauron/avogado-to-sciolyff/sciolyff/models"
+	"github.com/Nydauron/avocado2sciolyff/parsers"
+	"github.com/Nydauron/avocado2sciolyff/prompts"
+	sciolyff_models "github.com/Nydauron/avocado2sciolyff/sciolyff/models"
 )
 
 const (

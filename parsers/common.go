@@ -3,7 +3,7 @@ package parsers
 import (
 	"regexp"
 
-	sciolyff_models "github.com/Nydauron/avogado-to-sciolyff/sciolyff/models"
+	sciolyff_models "github.com/Nydauron/avocado2sciolyff/sciolyff/models"
 )
 
 var numberRegex = regexp.MustCompile(`[0-9]+`)

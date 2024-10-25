@@ -1,4 +1,4 @@
-module github.com/Nydauron/avogado-to-sciolyff
+module github.com/Nydauron/avocado2sciolyff
 
 go 1.23
 

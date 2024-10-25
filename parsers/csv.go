@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	sciolyff_models "github.com/Nydauron/avogado-to-sciolyff/sciolyff/models"
+	sciolyff_models "github.com/Nydauron/avocado2sciolyff/sciolyff/models"
 )
 
 const TEAM_NUMER_COL_NAME = ""
