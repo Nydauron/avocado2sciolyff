@@ -24,12 +24,19 @@ func GenerateSciolyFF(table parsers.Table) sciolyff_models.SciolyFF {
 	placings := make([]*sciolyff_models.Placing, 0)
 	teamCount := uint(len(table.Schools))
 	trackNames := map[string]struct{}{}
+	teamCountPerTrack := map[string]uint{}
 	placingsByEventByTrack := make([]map[string][]*sciolyff_models.Placing, len(events))
 	for _, team := range table.Schools {
 		trackNames[team.Track] = struct{}{}
 		if len(events) != len(team.Scores) {
 			panic(fmt.Sprintf("Score array for team \"%s\" is not the same size as number of events (%d events, %d scores)", team.Name, len(events), len(team.Scores)))
 		}
+
+		if _, ok := teamCountPerTrack[team.Track]; !ok {
+			teamCountPerTrack[team.Track] = 0
+		}
+		teamCountPerTrack[team.Track] += 1
+
 		for eventIdx, score := range team.Scores {
 			p := sciolyff_models.Placing{Event: events[eventIdx].Name, TeamNumber: team.TeamNumber}
 			p.Participated = true
@@ -86,7 +93,11 @@ func GenerateSciolyFF(table parsers.Table) sciolyff_models.SciolyFF {
 						}
 						continue
 					}
-					p.TrackPlace = uint(i + 1)
+					if p.Place == teamCount {
+						p.TrackPlace = teamCountPerTrack[track]
+					} else {
+						p.TrackPlace = uint(i + 1)
+					}
 				}
 			}
 		}
