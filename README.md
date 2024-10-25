@@ -7,7 +7,7 @@ A CLI tool to convert [Avogadro](https://avogadro.ws/) result tables to the [sci
 
 - Ensure you have [Go 1.23](https://go.dev/doc/install) installed
 - Clone this repo
-- To generate a binary, run `go build`
+- To generate a binary for your specific machine, run `go build`
 - Alternatively, run `go run` to run the program without producing a binary
 
 ## Example Usage
@@ -21,3 +21,8 @@ Converting Illinois 2024 State tournament results from local file and outputing 
 ```
 avocado2sciolyff -iO "2024 University of Illinois Urbana Champaign State (Div. C).html" -iG "Scores by Group - Illinois_ University of Illinois Urbana Champaign State (Div. C).html" --output 2024-il-state-c.yaml
 ```
+
+You will be prompted to fill out additional information regarding event
+trialing and tournament metadata.
+
+For additional help on options and flags, you can run `avocado2sciolyff --help`
