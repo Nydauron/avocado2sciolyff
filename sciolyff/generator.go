@@ -2,6 +2,7 @@ package sciolyff
 
 import (
 	"fmt"
+	"os"
 	"slices"
 
 	"github.com/Nydauron/avogado-to-sciolyff/parsers"
@@ -9,7 +10,14 @@ import (
 	sciolyff_models "github.com/Nydauron/avogado-to-sciolyff/sciolyff/models"
 )
 
-func GenerateSciolyFF(table parsers.Table) sciolyff_models.SciolyFF {
+const (
+	TrackPlaceNoCalc   = 0
+	TrackPlaceCalc     = 1
+	TrackPlaceProvided = 2
+)
+
+func GenerateSciolyFF(table parsers.Table, groupResTable *parsers.Table) sciolyff_models.SciolyFF {
+	// FIX: Assumes table and groupResTable have the same events and same teams. Should do some validation here or earlier ...
 	events := make([]sciolyff_models.Event, 0)
 	for _, e := range table.Events {
 		isEventTrialEvent := false
@@ -19,7 +27,27 @@ func GenerateSciolyFF(table parsers.Table) sciolyff_models.SciolyFF {
 		events = append(events, sciolyff_models.Event{Name: e.Name, IsTrial: e.IsMarkedAsTrial && isEventTrialEvent, TrialedNormalEvent: e.IsMarkedAsTrial && !isEventTrialEvent})
 	}
 
-	isTrackPlaceCalculationAllowed := prompts.AllowCalculationTrackPlaceFromOverallPrompt()
+	var isTrackPlaceCalculationAllowed uint
+	// Map of team numbers to map of scores by event name
+	groupScoresByTeam := map[uint]map[string]uint{}
+	if groupResTable != nil {
+		isTrackPlaceCalculationAllowed = TrackPlaceProvided
+		fmt.Fprintln(os.Stderr, "Table with group results was provided. Skipping track place calculation ...")
+		for _, team := range groupResTable.Schools {
+			// FIX: Assumes order is the same event order as overall
+			scoreMap := map[string]uint{}
+			for i, score := range team.Scores {
+				scoreMap[groupResTable.Events[i].Name] = score
+			}
+			groupScoresByTeam[team.TeamNumber] = scoreMap
+		}
+	} else {
+		if prompts.AllowCalculationTrackPlaceFromOverallPrompt() {
+			isTrackPlaceCalculationAllowed = TrackPlaceCalc
+		} else {
+			isTrackPlaceCalculationAllowed = TrackPlaceNoCalc
+		}
+	}
 
 	placings := make([]*sciolyff_models.Placing, 0)
 	teamCount := uint(len(table.Schools))
@@ -59,9 +87,10 @@ func GenerateSciolyFF(table parsers.Table) sciolyff_models.SciolyFF {
 			placingsByEventByTrack[eventIdx][team.Track] = append(placingsByEventByTrack[eventIdx][team.Track], placings[len(placings)-1])
 		}
 	}
-	if isTrackPlaceCalculationAllowed {
+	switch isTrackPlaceCalculationAllowed {
+	case TrackPlaceCalc:
 		for _, eventPlacingsByTrack := range placingsByEventByTrack {
-			for _, placings := range eventPlacingsByTrack {
+			for track, placings := range eventPlacingsByTrack {
 				slices.SortFunc(placings, func(a, b *sciolyff_models.Placing) int {
 					if !a.EventDQ && b.EventDQ {
 						return -1
@@ -98,6 +127,14 @@ func GenerateSciolyFF(table parsers.Table) sciolyff_models.SciolyFF {
 					} else {
 						p.TrackPlace = uint(i + 1)
 					}
+				}
+			}
+		}
+	case TrackPlaceProvided:
+		for _, eventPlacingsByTrack := range placingsByEventByTrack {
+			for _, placings := range eventPlacingsByTrack {
+				for _, p := range placings {
+					p.TrackPlace = groupScoresByTeam[p.TeamNumber][p.Event]
 				}
 			}
 		}

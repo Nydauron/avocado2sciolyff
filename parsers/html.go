@@ -62,7 +62,16 @@ func ParseHTML(r io.ReadCloser) (*Table, error) {
 				}
 				continue
 			}
-			isTableRow = isTable && t.Data == "tr"
+			isTableRowTag := t.Data == "tr"
+			if isTableRowTag {
+				for _, attr := range t.Attr {
+					if attr.Key == "class" {
+						classRegex := regexp.MustCompile(`\bseparator\b`)
+						isTableRowTag = !classRegex.MatchString(attr.Val)
+					}
+				}
+			}
+			isTableRow = isTable && isTableRowTag
 			if isTableRow {
 				currentColumn = 0
 				bufferSchool = sciolyff_models.School{}
