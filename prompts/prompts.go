@@ -114,5 +114,5 @@ func Prompt(message string) string {
 	fmt.Fprint(os.Stderr, message)
 	buf := bufio.NewReader(os.Stdin)
 	input, _ := buf.ReadString('\n')
-	return strings.TrimRight(input, "\n")
+	return strings.TrimRight(input, lineBreak)
 }
