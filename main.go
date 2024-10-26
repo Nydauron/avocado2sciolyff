@@ -25,7 +25,7 @@ const (
 )
 
 var build string
-var semanticVersion = "v0.1.1" + build
+var semanticVersion = "v0.2.0-dev" + build
 
 func cliHandle(inputLocation string, inputByGroupLocation string, outputWriter io.Writer, isCSVFile bool) error {
 	extractData := func(fileLocation string) (*parsers.Table, error) {
