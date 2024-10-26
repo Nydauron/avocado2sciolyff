@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"sync"
 
 	"github.com/Nydauron/avocado2sciolyff/parsers"
@@ -31,6 +32,9 @@ func cliHandle(inputLocation string, inputByGroupLocation string, outputWriter i
 	extractData := func(fileLocation string) (*parsers.Table, error) {
 		var htmlBodyReader io.ReadCloser
 		if u, err := url.ParseRequestURI(fileLocation); err == nil {
+			if !slices.Contains([]string{"http", "https"}, u.Scheme) {
+				return nil, fmt.Errorf("URL is not of HTTP schema (got %q instead)", u.Scheme)
+			}
 			fmt.Fprintln(os.Stderr, "URL detected")
 			rawURL := u.String()
 			resp, err := http.Get(rawURL)
