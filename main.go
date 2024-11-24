@@ -176,7 +176,7 @@ func main() {
 			var outputWriter io.WriteCloser = os.Stdout
 			if outputLocation != stdoutCLIName {
 				outputWriter = writers.NewLazyWriteCloser(func() (io.WriteCloser, error) {
-					return os.OpenFile(outputLocation, os.O_CREATE|os.O_WRONLY, 0644)
+					return os.OpenFile(outputLocation, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 				})
 			}
 			return cliHandle(inputOverallLocation, inputByGroupLocation, outputWriter, isCSV)
