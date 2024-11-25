@@ -38,7 +38,7 @@ type Placing struct {
 	Exempt       bool   `yaml:"exempt"`
 	Unknown      bool   `yaml:"unknown"`
 	Tie          bool   `yaml:"tie"`
-	Place        uint   `yaml:"place"`
+	Place        uint   `yaml:"place,omitempty"`
 	TrackPlace   uint   `yaml:"track place,omitempty"`
 }
 
