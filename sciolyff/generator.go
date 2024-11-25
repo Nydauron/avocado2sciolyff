@@ -74,7 +74,11 @@ func GenerateSciolyFF(table parsers.Table, groupResTable *parsers.Table) sciolyf
 			if score >= teamCount+2 { // DQ
 				p.EventDQ = true
 			}
-			p.Place = score
+			// If a team gets awarded P points Participated must be true and Points must not be set
+			// NOTE: If a single team got last, it is impossible to know whether the team got last or P points
+			if score < teamCount {
+				p.Place = score
+			}
 			placings = append(placings, &p)
 
 			if placingsByEventByTrack[eventIdx] == nil {
@@ -110,16 +114,17 @@ func GenerateSciolyFF(table parsers.Table, groupResTable *parsers.Table) sciolyf
 					if !a.Participated && !b.Participated {
 						return 0
 					}
+					if a.Place == 0 && b.Place != 0 {
+						return 1
+					}
+					if b.Place == 0 && a.Place != 0 {
+						return -1
+					}
 					return int(a.Place) - int(b.Place)
 				})
 
 				for i, p := range placings {
 					if !p.Participated {
-						if p.EventDQ {
-							p.TrackPlace = uint(len(placings)) + 2
-						} else {
-							p.TrackPlace = uint(len(placings)) + 1
-						}
 						continue
 					}
 					if p.Place == teamCount {
