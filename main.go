@@ -25,7 +25,7 @@ const (
 )
 
 var build string
-var semanticVersion = "v0.1.3" + build
+var semanticVersion = "v0.1.4" + build
 
 func cliHandle(inputLocation string, inputByGroupLocation string, outputWriter io.Writer, isCSVFile bool) error {
 	extractData := func(fileLocation string) (*parsers.Table, error) {
@@ -49,12 +49,12 @@ func cliHandle(inputLocation string, inputByGroupLocation string, outputWriter i
 				fmt.Fprintf(os.Stderr, "Page content recieved is not text/html UTF-8. Got instead \"%s\n", contentType)
 			}
 			htmlBodyReader = resp.Body
-		} else if f, err := os.Open(inputLocation); err == nil {
+		} else if f, err := os.Open(fileLocation); err == nil {
 			fmt.Fprintln(os.Stderr, "File detected")
 			defer f.Close()
 			htmlBodyReader = f
 		} else {
-			return nil, fmt.Errorf("provided input was neither a valid URL or a path to existing file: %v", inputLocation)
+			return nil, fmt.Errorf("provided input was neither a valid URL or a path to existing file: %v", fileLocation)
 		}
 
 		var table *parsers.Table
