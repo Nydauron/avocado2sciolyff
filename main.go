@@ -50,7 +50,7 @@ func cliHandle(inputLocation string, inputByGroupLocation string, outputWriter i
 			contentType := resp.Header.Get("content-type")
 			expectedContent := "text/html; charset=UTF-8"
 			if contentType != expectedContent {
-				fmt.Fprintf(os.Stderr, "Page content recieved is not text/html UTF-8. Got instead \"%s\n", contentType)
+				fmt.Fprintf(os.Stderr, "Page content recieved is not text/html UTF-8. Got instead %q\n", contentType)
 			}
 			htmlBodyReader = resp.Body
 		} else if f, err := os.Open(inputLocation); err == nil {
