@@ -65,7 +65,7 @@ func (r *ProgressReader) Read(p []byte) (int, error) {
 }
 
 func (r *ProgressReader) Close() error {
-	return r.Close()
+	return r.reader.Close()
 }
 
 func (r *ProgressReader) onUpdate() {
