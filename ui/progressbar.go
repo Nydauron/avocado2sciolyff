@@ -11,6 +11,21 @@ import (
 type ProgressBarValue = float64
 type ProgressBarComplete = struct{}
 
+type FileDownloadType = uint
+
+type InputFileError struct {
+	Err error
+	Id  FileDownloadType
+}
+
+type FinishedDownloading struct {
+	Id FileDownloadType
+}
+
+func (e InputFileError) Error() string {
+	return e.Err.Error()
+}
+
 type ProgressBar struct {
 	enableSpinner bool
 	progress      progress.Model
@@ -21,6 +36,7 @@ type ProgressBar struct {
 	totalBytes      int64
 	completedBytes  int64
 	enableCheckmark bool
+	err             error
 }
 
 func NewProgressBar() ProgressBar {
@@ -57,6 +73,9 @@ func (m ProgressBar) Init() tea.Cmd {
 
 func (m ProgressBar) Update(msg tea.Msg) (ProgressBar, tea.Cmd) {
 	switch msg := msg.(type) {
+	case FinishedDownloading:
+		m.enableCheckmark = true
+		return m, nil
 	case ProgressBarComplete:
 		m.enableCheckmark = true
 		return m, nil
@@ -65,6 +84,9 @@ func (m ProgressBar) Update(msg tea.Msg) (ProgressBar, tea.Cmd) {
 			m.enableSpinner = false
 		}
 		m.percent = msg
+		return m, nil
+	case InputFileError:
+		m.err = msg.Err
 		return m, nil
 	case spinner.TickMsg:
 		if m.enableSpinner {
@@ -77,6 +99,9 @@ func (m ProgressBar) Update(msg tea.Msg) (ProgressBar, tea.Cmd) {
 }
 
 func (m ProgressBar) View() string {
+	if m.err != nil {
+		return fmt.Sprintf("%s \u274c %s", m.label, m.err.Error())
+	}
 	if m.enableSpinner {
 		if m.enableCheckmark {
 			return fmt.Sprintf("%s \u2714", m.label)

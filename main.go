@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"os"
 	"slices"
-	"sync"
 
 	"github.com/Nydauron/avocado2sciolyff/parsers"
 	"github.com/Nydauron/avocado2sciolyff/prompts"
@@ -41,17 +40,15 @@ var semanticVersion = "v0.2.0-dev" + build
 
 var p *tea.Program
 
-type FileDownloadType = uint
-
 type ProgressBarUpdate struct {
-	id                  FileDownloadType
+	id                  ui.FileDownloadType
 	updatedPercent      ui.ProgressBarValue
 	totalByteCount      int64
 	downloadedByteCount int64
 }
 
 type ProgressReader struct {
-	progressBarId FileDownloadType
+	progressBarId ui.FileDownloadType
 	total         int64
 	downloaded    int64
 	reader        io.ReadCloser
@@ -79,7 +76,7 @@ func (r *ProgressReader) onUpdate() {
 	}
 }
 
-func fileFetch(fileLocation string, progressBarId *FileDownloadType) (io.ReadCloser, error) {
+func fileFetch(fileLocation string, progressBarId *ui.FileDownloadType) (io.ReadCloser, error) {
 	var htmlBodyReader io.ReadCloser
 	fileSize := int64(-1)
 	if u, err := url.ParseRequestURI(fileLocation); err == nil {
@@ -96,18 +93,15 @@ func fileFetch(fileLocation string, progressBarId *FileDownloadType) (io.ReadClo
 		if resp.StatusCode >= 400 {
 			return nil, fmt.Errorf("invalid HTTP status code received: %v", resp.Status)
 		}
-		defer resp.Body.Close()
 		contentType := resp.Header.Get("content-type")
 		expectedContent := "text/html; charset=UTF-8"
 		if contentType != expectedContent {
-			fmt.Fprintf(os.Stderr, "Page content recieved is not text/html UTF-8. Got instead %q\n", contentType)
+			return nil, fmt.Errorf("page content recieved is not text/html UTF-8. Got instead %q", contentType)
 		}
 		// resp.ContentLength is currently always being set to -1. No clue why
 		fileSize = resp.ContentLength
 		htmlBodyReader = resp.Body
 	} else if f, err := os.Open(fileLocation); err == nil {
-		fmt.Fprintln(os.Stderr, "File detected")
-		defer f.Close()
 		stats, err := f.Stat()
 		if err == nil {
 			fileSize = stats.Size()
@@ -128,27 +122,23 @@ func fileFetch(fileLocation string, progressBarId *FileDownloadType) (io.ReadClo
 	return htmlBodyReader, nil
 }
 
-func extractDataHandler(isCSVFile bool) func(string, *FileDownloadType) (*parsers.Table, error) {
-	return func(fileLocation string, progressBarId *FileDownloadType) (*parsers.Table, error) {
-		var table *parsers.Table
-		if isCSVFile {
-			var err error
-			table, err = parsers.ParseCSV(htmlBodyReader)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Cell did not contain number: %v\n", err)
-				os.Exit(4)
-			}
-		} else {
-			var err error
-			table, err = parsers.ParseHTML(htmlBodyReader)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Cell did not contain number: %v\n", err)
-				os.Exit(4)
-			}
+func extractData(htmlBodyReader io.ReadCloser, isCSVFile bool) (*parsers.Table, error) {
+	var table *parsers.Table
+	if isCSVFile {
+		var err error
+		table, err = parsers.ParseCSV(htmlBodyReader)
+		if err != nil {
+			return nil, err
 		}
-
-		return table, nil
+	} else {
+		var err error
+		table, err = parsers.ParseHTML(htmlBodyReader)
+		if err != nil {
+			return nil, err
+		}
 	}
+
+	return table, nil
 }
 
 // func cliHandle(inputLocation string, inputByGroupLocation string, outputWriter io.Writer, isCSVFile bool) error {
@@ -300,6 +290,8 @@ type originModel struct {
 	groupTable   *parsers.Table
 
 	validatedPromptData *sciolyff_models.PromptData
+
+	quitError error
 }
 
 type ArgumentInputs struct {
@@ -310,16 +302,25 @@ type ArgumentInputs struct {
 	outputFileLocation string
 }
 
-const OverallInputType FileDownloadType = 1
-const GroupInputType FileDownloadType = 2
+const OverallInputType ui.FileDownloadType = 1
+const GroupInputType ui.FileDownloadType = 2
 
 type FileDownloadProgress struct {
-	inputType FileDownloadType
+	inputType ui.FileDownloadType
 	progress  float64
 }
 
 type SetPrompts struct {
 	prompts []ui.InputData
+}
+
+type InputDownloadPayload struct {
+	overallTable *parsers.Table
+	groupTable   *parsers.Table
+}
+
+type EndProgram struct {
+	err error
 }
 
 func NewOriginModel(inputs ArgumentInputs) originModel {
@@ -335,63 +336,103 @@ func NewOriginModel(inputs ArgumentInputs) originModel {
 		fileDownloadOverall: fileDownloadOverall,
 		inputs:              inputs,
 		validatedPromptData: &sciolyff_models.PromptData{},
+		quitError:           nil,
 	}
 }
 
 func (m originModel) Init() tea.Cmd {
 	return tea.Batch(func() tea.Msg {
-		extractData := extractDataHandler(m.inputs.isCSVFile)
-
 		var overallResTable *parsers.Table = nil
 		var groupResTable *parsers.Table = nil
-		err_ch := make(chan error, 2)
-		continue_ch := make(chan struct{})
-		wg := sync.WaitGroup{}
+		const inputFileThreadCount uint = 2
+		errCh := make(chan error, inputFileThreadCount)
 
-		dataParser := func(err_channel chan<- error, inputPath string, table **parsers.Table, id FileDownloadType) {
-			t, err := extractData(inputPath, &id)
-			*table = t
+		dataParser := func(errChannel chan<- error, inputPath string, table **parsers.Table, id ui.FileDownloadType) {
+			reader, err := fileFetch(inputPath, &id)
 			if err != nil {
-				err_channel <- err
+				err := ui.InputFileError{Err: fmt.Errorf("file fetch error: %w", err), Id: id}
+				p.Send(err)
+				errChannel <- err
 				return
 			}
-			wg.Done()
+			defer reader.Close()
+			t, err := extractData(reader, m.inputs.isCSVFile)
+			if err != nil {
+				err := ui.InputFileError{Err: fmt.Errorf("parsing error: %w", err), Id: id}
+				p.Send(err)
+				errChannel <- err
+				return
+			}
+			*table = t
+			p.Send(ui.FinishedDownloading{Id: id})
+			errChannel <- nil
 		}
-		wg.Add(1)
-		go dataParser(err_ch, m.inputs.inputOverallLocation, &overallResTable, OverallInputType)
+		workingThreads := 1
+		go dataParser(errCh, m.inputs.inputOverallLocation, &overallResTable, OverallInputType)
 
 		if m.inputs.inputGroupLocation != "" {
-			wg.Add(1)
-			go dataParser(err_ch, m.inputs.inputGroupLocation, &groupResTable, GroupInputType)
-		}
-		go func() {
-			defer close(continue_ch)
-			wg.Wait()
-		}()
-
-		select {
-		case err := <-err_ch:
-			fmt.Fprintf(os.Stderr, "Error during parsing: %v", err)
-			return fmt.Errorf("")
-			return err
-		case <-continue_ch:
+			workingThreads++
+			go dataParser(errCh, m.inputs.inputGroupLocation, &groupResTable, GroupInputType)
 		}
 
-		return FinishDownloading{
+		errorOccurred := false
+		for workingThreads > 0 {
+			err := <-errCh
+			if err != nil {
+				errorOccurred = true
+			}
+			workingThreads--
+		}
+		if errorOccurred {
+			return EndProgram{err: fmt.Errorf("input errors need to be fixed before continuing")}
+		}
+
+		return InputDownloadPayload{
 			overallTable: overallResTable,
 			groupTable:   groupResTable,
 		}
 	}, m.fileDownloadGroup.GetSpinnerInitTick(), m.fileDownloadOverall.GetSpinnerInitTick())
 }
 
-type FinishDownloading struct {
-	overallTable *parsers.Table
-	groupTable   *parsers.Table
+func WriteToYamlCmd(outfile string, overallTable parsers.Table, groupTable *parsers.Table, validatedPrompts sciolyff_models.PromptData) tea.Cmd {
+	return func() tea.Msg {
+		var outputWriter io.WriteCloser = os.Stdout
+		if outfile != stdoutCLIName {
+			outputWriter = writers.NewLazyWriteCloser(func() (io.WriteCloser, error) {
+				return os.OpenFile(outfile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+			})
+		}
+		sciolyffDump := sciolyff.GenerateSciolyFF(overallTable, groupTable, validatedPrompts)
+
+		_, err := fmt.Fprintf(outputWriter, "###\n# This YAML file was auto-generated by avocado2sciolyff "+semanticVersion+"\n###\n")
+		if err != nil {
+			return EndProgram{err: fmt.Errorf("encoding to YAML failed: %w", err)}
+		}
+		yamlEncoder := yaml.NewEncoder(outputWriter)
+		yamlEncoder.SetIndent(2)
+		err = yamlEncoder.Encode(&sciolyffDump)
+		if err != nil {
+			return EndProgram{err: fmt.Errorf("encoding to YAML failed: %w", err)}
+		}
+
+		err = yamlEncoder.Close()
+		if err != nil {
+			return EndProgram{err: fmt.Errorf("encoding to YAML failed on close: %w", err)}
+		}
+		return nil
+	}
 }
 
 func (m originModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd = nil
 	switch msg := msg.(type) {
+	case EndProgram:
+		m.quitError = msg.err
+		return m, func() tea.Msg {
+			return tea.QuitMsg{}
+		}
+	case tea.QuitMsg:
+		return m, tea.Quit
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
@@ -404,38 +445,28 @@ func (m originModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					nextState := m.Next()
 					m.state = nextState
 					if nextState == WriteToFileState {
-						return m, func() tea.Msg {
-							var outputWriter io.WriteCloser = os.Stdout
-							if m.inputs.outputFileLocation != stdoutCLIName {
-								outputWriter = writers.NewLazyWriteCloser(func() (io.WriteCloser, error) {
-									return os.OpenFile(m.inputs.outputFileLocation, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-								})
-							}
-							sciolyffDump := sciolyff.GenerateSciolyFF(*m.overallTable, m.groupTable, *m.validatedPromptData)
-
-							outputWriter.Write([]byte(fmt.Sprintf("###\n# This YAML file was auto-generated by avocado2sciolyff " + semanticVersion + "\n###\n")))
-							yamlEncoder := yaml.NewEncoder(outputWriter)
-							yamlEncoder.SetIndent(2)
-							err := yamlEncoder.Encode(&sciolyffDump)
-							if err != nil {
-								fmt.Fprintf(os.Stderr, "Encoding to YAML failed: %v", err)
-								os.Exit(3)
-								return nil
-							}
-
-							err = yamlEncoder.Close()
-							if err != nil {
-								fmt.Fprintf(os.Stderr, "Encoding to YAML failed on close: %v", err)
-								os.Exit(3)
-								return nil
-							}
-							return nil
-						}
+						return m, WriteToYamlCmd(m.inputs.outputFileLocation, *m.overallTable, m.groupTable, *m.validatedPromptData)
 					}
-
 				}
 			}
 			return m, nil
+		}
+	case ui.InputFileError:
+		var cmd tea.Cmd = nil
+		switch msg.Id {
+		case OverallInputType:
+			m.fileDownloadOverall, cmd = m.fileDownloadOverall.Update(msg)
+		case GroupInputType:
+			m.fileDownloadGroup, cmd = m.fileDownloadGroup.Update(msg)
+		}
+		return m, cmd
+
+	case ui.FinishedDownloading:
+		switch msg.Id {
+		case OverallInputType:
+			m.fileDownloadOverall, cmd = m.fileDownloadOverall.Update(msg)
+		case GroupInputType:
+			m.fileDownloadGroup, cmd = m.fileDownloadGroup.Update(msg)
 		}
 	case FileDownloadProgress:
 		switch msg.inputType {
@@ -454,7 +485,7 @@ func (m originModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fileDownloadGroup, cmd = m.fileDownloadGroup.Update(msg.updatedPercent)
 			return m, cmd
 		}
-	case FinishDownloading:
+	case InputDownloadPayload:
 		m.state = PrePromptState
 		m.overallTable = msg.overallTable
 		m.groupTable = msg.groupTable
@@ -500,8 +531,16 @@ func (m *originModel) Next() ModelState {
 
 func (m originModel) View() string {
 	s := ""
+	quitMessage := func() string {
+		if m.quitError != nil {
+			return fmt.Sprintf("%s\n", m.quitError.Error())
+		}
+		return ""
+	}
+
 	s += fmt.Sprintf("%s\n%s\n", m.fileDownloadOverall.View(), m.fileDownloadGroup.View())
 	if m.state == RetrievingFilesState || m.state == PrePromptState {
+		s += quitMessage()
 		return s
 	}
 	for i, p := range m.prompts {
@@ -518,6 +557,7 @@ func (m originModel) View() string {
 	if m.state == WriteToFileState {
 		s += "Congrats! Here's a spork\n"
 	}
+	s += quitMessage()
 	return s
 }
 
