@@ -120,7 +120,7 @@ func fileFetch(fileLocation string, progressBarId *FileDownloadType) (io.ReadClo
 	if progressBarId != nil {
 		htmlBodyReader = &ProgressReader{
 			progressBarId: *progressBarId,
-			total:         int64(fileSize),
+			total:         fileSize,
 			downloaded:    0,
 			reader:        htmlBodyReader,
 		}
