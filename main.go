@@ -21,9 +21,7 @@ import (
 	"github.com/Nydauron/avocado2sciolyff/ui"
 	"github.com/Nydauron/avocado2sciolyff/writers"
 
-	// "github.com/Nydauron/avocado2sciolyff/writers"
 	// "github.com/urfave/cli/v2"
-	// "golang.org/x/text/cases"
 	"gopkg.in/yaml.v3"
 
 	"github.com/charmbracelet/bubbles/spinner"
