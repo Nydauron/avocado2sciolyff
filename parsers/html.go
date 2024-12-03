@@ -15,6 +15,7 @@ func ParseHTML(r io.ReadCloser) (*Table, error) {
 	table := Table{}
 	isTable := false
 
+	isTournamentInfo := false
 	isProcessingEventHeader := false
 	isEventName := false
 	isEventPotentialTrial := false
@@ -34,6 +35,12 @@ func ParseHTML(r io.ReadCloser) (*Table, error) {
 		case html.StartTagToken:
 			t := z.Token()
 			switch t.Data {
+			case "h1":
+				// Tournament info
+				if isProcessingEventHeader || isTable || isTableHead || isTableRow || isTableCell {
+					continue
+				}
+				isTournamentInfo = true
 			case "span":
 				if isProcessingEventHeader {
 					for _, attr := range t.Attr {
@@ -94,6 +101,39 @@ func ParseHTML(r io.ReadCloser) (*Table, error) {
 		case html.TextToken:
 			t := z.Token()
 			trimmedData := strings.Trim(t.Data, " ")
+			if isTournamentInfo {
+				// Parse tournament info
+
+				state_split := strings.SplitN(trimmedData, ":", 2)
+				state := ""
+				rem := trimmedData
+				if len(state_split) == 2 {
+					state = strings.Trim(state_split[0], " ")
+					rem = strings.Trim(state_split[1], " ")
+				}
+				if strings.ToLower(state) == "invitational" {
+					state = ""
+				}
+
+				division_str := strings.TrimFunc(rem, func(r rune) bool {
+					return !strings.ContainsRune("()", r)
+				})
+				division, found := strings.CutPrefix(strings.ToLower(division_str), "div")
+				division = strings.Trim(division, ". ")
+				if !found {
+					division = ""
+				}
+
+				left_div_parentheses := strings.Index(rem, "(")
+				name := strings.Trim(rem[:left_div_parentheses], " ")
+
+				info := AvogadroTournamentInfo{
+					Name:     name,
+					Division: division,
+					State:    state,
+				}
+				table.Info = info
+			}
 			if isEventName {
 				bufferEvent.Name = trimmedData
 				continue
@@ -130,6 +170,10 @@ func ParseHTML(r io.ReadCloser) (*Table, error) {
 			}
 		case html.EndTagToken:
 			t := z.Token()
+			if t.Data == "h1" {
+				isTournamentInfo = false
+				continue
+			}
 			if t.Data == "a" {
 				isEventName = false
 				continue

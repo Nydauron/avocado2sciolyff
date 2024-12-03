@@ -73,10 +73,10 @@ func StatePrompt() string {
 	translatedState := ""
 	for translatedState == "" {
 		userInput := strings.ToUpper(Prompt("State: "))
-		if slices.Contains(stateAbbreviations, userInput) {
+		if slices.Contains(StateAbbreviations, userInput) {
 			translatedState = userInput
-		} else if slices.Contains(stateNames, userInput) {
-			translatedState = stateMapping[userInput]
+		} else if slices.Contains(StateNames, userInput) {
+			translatedState = StateMapping[userInput]
 		}
 	}
 	return translatedState

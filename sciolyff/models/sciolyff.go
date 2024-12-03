@@ -1,5 +1,16 @@
 package sciolyff_models
 
+type PromptData struct {
+	Name      string
+	ShortName string
+	Location  string
+	Level     string
+	Division  string
+	State     string
+	Year      int
+	Date      string
+}
+
 type SciolyFF struct {
 	Tournament TournamentMetadata `yaml:"Tournament"`
 	Tracks     []Track            `yaml:"Tracks,omitempty"`
@@ -45,6 +56,9 @@ type Placing struct {
 type School struct {
 	TeamNumber uint   `yaml:"number"`
 	Name       string `yaml:"school"`
+	Suffix     string `yaml:"suffix,omitempty"`
+	City       string `yaml:"city,omitempty"`
+	State      string `yaml:"state"`
 	Track      string `yaml:"track"`
 	Scores     []uint `yaml:"-"`
 	TotalScore string `yaml:"-"`

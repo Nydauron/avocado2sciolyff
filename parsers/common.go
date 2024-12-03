@@ -9,6 +9,7 @@ import (
 var numberRegex = regexp.MustCompile(`[0-9]+`)
 
 type Table struct {
+	Info    AvogadroTournamentInfo
 	Events  []AvogadroEvent
 	Schools []sciolyff_models.School
 }
@@ -16,4 +17,10 @@ type Table struct {
 type AvogadroEvent struct {
 	Name            string
 	IsMarkedAsTrial bool
+}
+
+type AvogadroTournamentInfo struct {
+	Name     string
+	Division string
+	State    string
 }

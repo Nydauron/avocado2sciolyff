@@ -16,7 +16,7 @@ const (
 	TrackPlaceProvided = 2
 )
 
-func GenerateSciolyFF(table parsers.Table, groupResTable *parsers.Table) sciolyff_models.SciolyFF {
+func GenerateSciolyFF(table parsers.Table, groupResTable *parsers.Table, promptData sciolyff_models.PromptData) sciolyff_models.SciolyFF {
 	// FIX: Assumes table and groupResTable have the same events and same teams. Should do some validation here or earlier ...
 	events := make([]sciolyff_models.Event, 0)
 	for _, e := range table.Events {
@@ -152,14 +152,14 @@ func GenerateSciolyFF(table parsers.Table, groupResTable *parsers.Table) sciolyf
 	}
 
 	tournament := sciolyff_models.TournamentMetadata{
-		Name:      prompts.Prompt("Tournament name: "),
-		ShortName: prompts.Prompt("Tournament nickname/short name: "),
-		Location:  prompts.Prompt("Tournament location (host building/campus): "),
-		Level:     prompts.TournamentLevelPrompt(),
-		State:     prompts.StatePrompt(),
-		Division:  prompts.TournamentDivisionPrompt(),
-		Year:      prompts.RulesYearPrompt(),
-		Date:      prompts.TournamentDatePrompt(),
+		Name:      promptData.Name,
+		ShortName: promptData.ShortName,
+		Location:  promptData.Location,
+		Level:     promptData.Level,
+		State:     promptData.State,
+		Division:  promptData.Division,
+		Year:      promptData.Year,
+		Date:      promptData.Date,
 	}
 
 	copy_of_placings := make([]sciolyff_models.Placing, len(placings))

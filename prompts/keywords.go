@@ -2,7 +2,7 @@ package prompts
 
 import "maps"
 
-var stateMapping = map[string]string{
+var StateMapping = map[string]string{
 	"ALABAMA":              "AL",
 	"ALASKA":               "AK",
 	"ARIZONA":              "AZ",
@@ -57,18 +57,18 @@ var stateMapping = map[string]string{
 	"WYOMING":              "WY",
 }
 
-var stateAbbreviations = func() []string {
-	arr := make([]string, 0, len(stateMapping))
-	for v := range maps.Values(stateMapping) {
+var StateAbbreviations = func() []string {
+	arr := make([]string, 0, len(StateMapping))
+	for v := range maps.Values(StateMapping) {
 		arr = append(arr, v)
 	}
 
 	return arr
 }()
 
-var stateNames = func() []string {
-	arr := make([]string, 0, len(stateMapping))
-	for v := range maps.Keys(stateMapping) {
+var StateNames = func() []string {
+	arr := make([]string, 0, len(StateMapping))
+	for v := range maps.Keys(StateMapping) {
 		arr = append(arr, v)
 	}
 
