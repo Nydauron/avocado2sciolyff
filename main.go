@@ -275,6 +275,9 @@ const (
 	PrePromptState       ModelState = 2
 	PromptState          ModelState = 3
 	WriteToFileState     ModelState = 4
+
+	OverallInputType ui.FileDownloadType = 1
+	GroupInputType   ui.FileDownloadType = 2
 )
 
 type originModel struct {
@@ -301,9 +304,6 @@ type ArgumentInputs struct {
 
 	outputFileLocation string
 }
-
-const OverallInputType ui.FileDownloadType = 1
-const GroupInputType ui.FileDownloadType = 2
 
 type FileDownloadProgress struct {
 	inputType ui.FileDownloadType
