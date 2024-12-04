@@ -275,6 +275,7 @@ const (
 	PrePromptState       ModelState = 2
 	PromptState          ModelState = 3
 	WriteToFileState     ModelState = 4
+	FinishedWrite        ModelState = 5
 
 	OverallInputType ui.FileDownloadType = 1
 	GroupInputType   ui.FileDownloadType = 2
@@ -422,9 +423,11 @@ func WriteToYamlCmd(outfile string, overallTable parsers.Table, groupTable *pars
 		if err != nil {
 			return EndProgram{err: fmt.Errorf("encoding to YAML failed on close: %w", err)}
 		}
-		return nil
+		return FinishedYamlWrite{}
 	}
 }
+
+type FinishedYamlWrite struct{}
 
 func (m originModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd = nil
@@ -514,6 +517,12 @@ func (m originModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.state = PromptState
 		}
+	case FinishedYamlWrite:
+		m.state = FinishedWrite
+		return m, func() tea.Msg {
+			time.Sleep(1 * time.Second)
+			return tea.QuitMsg{}
+		}
 	}
 
 	if m.state == PromptState {
@@ -586,8 +595,14 @@ func (m originModel) View() string {
 		}
 	}
 
-	if m.state == WriteToFileState {
-		s += "Congrats! Here's a spork\n"
+	if m.state == WriteToFileState || m.state == FinishedWrite {
+		s += fmt.Sprintf("Writing YAML to %s", m.inputs.outputFileLocation)
+	}
+	switch m.state {
+	case WriteToFileState:
+		s += " ..."
+	case FinishedWrite:
+		s += " \u2714\nAll done!🎉 Here's a spork\n"
 	}
 	s += quitMessage()
 	return s
