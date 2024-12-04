@@ -9,6 +9,9 @@ type PromptData struct {
 	State     string
 	Year      int
 	Date      string
+
+	TrialEventsTrialed         map[string]bool
+	CalculateGroupsFromOverall bool
 }
 
 type SciolyFF struct {

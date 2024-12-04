@@ -282,6 +282,8 @@ const (
 
 type originModel struct {
 	state               ModelState
+	trialPromptIdx      int
+	trialPrompts        []ui.TrialPrompt
 	promptIdx           int
 	prompts             []ui.Prompt
 	fileDownloadOverall ui.ProgressBar
@@ -311,7 +313,8 @@ type FileDownloadProgress struct {
 }
 
 type SetPrompts struct {
-	prompts []ui.InputData
+	trialPrompts []ui.TrialPrompt
+	prompts      []ui.InputData
 }
 
 type InputDownloadPayload struct {
@@ -491,7 +494,7 @@ func (m originModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.groupTable = msg.groupTable
 		m.fileDownloadOverall, _ = m.fileDownloadOverall.Update(ui.ProgressBarComplete{})
 		m.fileDownloadGroup, _ = m.fileDownloadGroup.Update(ui.ProgressBarComplete{})
-		return m, GeneratePrompts(m.validatedPromptData, m.overallTable.Info)
+		return m, GeneratePrompts(m.validatedPromptData, *m.overallTable, m.groupTable != nil)
 	case spinner.TickMsg:
 		if m.state == RetrievingFilesState {
 			switch msg.ID {
@@ -504,6 +507,7 @@ func (m originModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case SetPrompts:
 		if m.state == PrePromptState {
+			m.trialPrompts = msg.trialPrompts
 			m.prompts = nil
 			for _, promptData := range msg.prompts {
 				m.prompts = append(m.prompts, ui.NewPrompt(promptData))
@@ -513,14 +517,23 @@ func (m originModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.state == PromptState {
-		current := &m.prompts[m.promptIdx]
-		current.Input, cmd = current.Input.Update(msg)
+		if m.trialPromptIdx < len(m.trialPrompts) {
+			current := &m.trialPrompts[m.trialPromptIdx]
+			*current, cmd = current.Update(msg)
+		} else {
+			current := &m.prompts[m.promptIdx]
+			*current, cmd = current.Update(msg)
+		}
 		return m, cmd
 	}
 	return m, nil
 }
 
 func (m *originModel) Next() ModelState {
+	if m.trialPromptIdx < len(m.trialPrompts) {
+		m.trialPromptIdx++
+		return PromptState
+	}
 	if m.promptIdx >= len(m.prompts)-1 {
 		m.promptIdx = 0
 		return WriteToFileState
@@ -543,17 +556,36 @@ func (m originModel) View() string {
 		s += quitMessage()
 		return s
 	}
-	for i, p := range m.prompts {
-		if m.state == PromptState && i == m.promptIdx {
-			err_str := "\u2714"
-			if err := p.ParseValue(); err != nil {
-				err_str = fmt.Sprintf("\u274c %s", err.Error())
-			}
-			s += fmt.Sprintf("%s %s\n", p.View(), err_str)
+
+	if len(m.trialPrompts) != 0 {
+		s += fmt.Sprintf("\n\n%d events were marked with the trial/exhibition tag. Please denote whether the event is a trial event (1) or was trialed (2):\n\n", len(m.trialPrompts))
+		s += "Hit ENTER after each choice\n\n"
+	}
+
+	for i, p := range m.trialPrompts {
+		s += fmt.Sprintf("%s\n", p.View())
+		if m.state == PromptState && i == m.trialPromptIdx {
 			break
 		}
-		s += fmt.Sprintf("%s: %s\n", p.Data.Question, p.GetValue())
 	}
+	if m.trialPromptIdx >= len(m.trialPrompts) {
+		if len(m.prompts) != 0 {
+			s += "\n\nSome info cannot be confidently determined. Please fill out the prompts below:\n\n"
+			s += "Virtual text can be accepted by simply hitting ENTER\nVirtual text can be modified with Alt+ENTER\n\u2714  Acceptable\n\u274c Not acceptable\n\n"
+		}
+		for i, p := range m.prompts {
+			if m.state == PromptState && i == m.promptIdx {
+				err_str := "\u2714"
+				if err := p.ParseValue(); err != nil {
+					err_str = fmt.Sprintf("\u274c %s", err.Error())
+				}
+				s += fmt.Sprintf("%s %s\n", p.View(), err_str)
+				break
+			}
+			s += fmt.Sprintf("%s: %s\n", p.Data.Question, p.GetValue())
+		}
+	}
+
 	if m.state == WriteToFileState {
 		s += "Congrats! Here's a spork\n"
 	}
@@ -561,111 +593,142 @@ func (m originModel) View() string {
 	return s
 }
 
-func GeneratePrompts(dataLocation *sciolyff_models.PromptData, initialValues parsers.AvogadroTournamentInfo) tea.Cmd {
+func GeneratePrompts(dataLocation *sciolyff_models.PromptData, initialValues parsers.Table, groupTableProvided bool) tea.Cmd {
 	return func() tea.Msg {
-		return SetPrompts{
-			prompts: []ui.InputData{
-				{
-					Question:     "Name",
-					DefaultValue: initialValues.Name,
-					Parse: func(s string) error {
-						if len(s) == 0 {
-							return fmt.Errorf("required")
-						}
-						dataLocation.Name = s
-						return nil
-					},
-				},
-				{
-					Question: "Tournament nickname/short name",
-					Parse: func(s string) error {
-						if len(s) == 0 {
-							return fmt.Errorf("required")
-						}
-						dataLocation.ShortName = s
-						return nil
-					},
-				},
-				{
-					Question: "Location",
-					Parse: func(s string) error {
-						dataLocation.Location = s
-						return nil
-					},
-				},
-				{
-					Question: "Tournament level (i, r, s, n)",
-					Parse: func(s string) error {
-						if len(s) == 0 {
-							return fmt.Errorf("required")
-						}
-						c := strings.ToLower(s)[0]
-						inviteType := prompts.TranslateLevelAbbrevToFull(c)
-						if inviteType == "" {
-							return fmt.Errorf("value must be i, r, s, or n")
-						}
-						dataLocation.Level = inviteType
-						return nil
-					},
-				},
-				{
-					Question:     "State",
-					DefaultValue: initialValues.State,
-					Parse: func(s string) error {
-						translatedState := ""
-						state_str := strings.ToUpper(s)
-						if slices.Contains(prompts.StateAbbreviations, state_str) {
-							translatedState = state_str
-						} else if slices.Contains(prompts.StateNames, state_str) {
-							translatedState = prompts.StateMapping[state_str]
-						}
-						if translatedState == "" {
-							return fmt.Errorf("unknown state")
-						}
-						dataLocation.State = translatedState
-						return nil
-					},
-				},
-				{
-					Question:     "Tournament division (a, b, c)",
-					DefaultValue: initialValues.Division,
-					Parse: func(s string) error {
-						if len(s) == 0 {
-							return fmt.Errorf("required")
-						}
-						c := strings.ToLower(s)[0]
-						if c < 'a' || c > 'c' {
-							return fmt.Errorf("unknown tournament division")
-						}
-
-						dataLocation.Division = strings.ToUpper(s[:1])
-						return nil
-					},
-				},
-				{
-					Question: "Rules year",
-					Parse: func(s string) error {
-						year, err := strconv.Atoi(s)
-						if err != nil {
-							return fmt.Errorf("Parsing error")
-						}
-						dataLocation.Year = year
-						return nil
-					},
-				},
-				{
-					Question: "Tournament date",
-					Parse: func(s string) error {
-						_, err := time.Parse(time.DateOnly, s)
-						if err != nil {
-							return fmt.Errorf("Not a valid YYYY-mm-dd date")
-						}
-
-						dataLocation.Date = s
-						return nil
-					},
+		metadata := initialValues.Info
+		trialPrompts := make([]ui.TrialPrompt, 0)
+		for _, e := range initialValues.Events {
+			if e.IsMarkedAsTrial {
+				trialPrompts = append(trialPrompts, ui.NewTrialPrompt(e.Name, func(wasTrialed bool) error {
+					dataLocation.TrialEventsTrialed[e.Name] = wasTrialed
+					return nil
+				}))
+			}
+		}
+		textPrompts := []ui.InputData{
+			{
+				Question:     "Name",
+				DefaultValue: metadata.Name,
+				Parse: func(s string) error {
+					if len(s) == 0 {
+						return fmt.Errorf("required")
+					}
+					dataLocation.Name = s
+					return nil
 				},
 			},
+			{
+				Question: "Tournament nickname/short name",
+				Parse: func(s string) error {
+					if len(s) == 0 {
+						return fmt.Errorf("required")
+					}
+					dataLocation.ShortName = s
+					return nil
+				},
+			},
+			{
+				Question: "Location",
+				Parse: func(s string) error {
+					dataLocation.Location = s
+					return nil
+				},
+			},
+			{
+				Question: "Tournament level (i, r, s, n)",
+				Parse: func(s string) error {
+					if len(s) == 0 {
+						return fmt.Errorf("required")
+					}
+					c := strings.ToLower(s)[0]
+					inviteType := prompts.TranslateLevelAbbrevToFull(c)
+					if inviteType == "" {
+						return fmt.Errorf("value must be i, r, s, or n")
+					}
+					dataLocation.Level = inviteType
+					return nil
+				},
+			},
+			{
+				Question:     "State",
+				DefaultValue: metadata.State,
+				Parse: func(s string) error {
+					translatedState := ""
+					state_str := strings.ToUpper(s)
+					if slices.Contains(prompts.StateAbbreviations, state_str) {
+						translatedState = state_str
+					} else if slices.Contains(prompts.StateNames, state_str) {
+						translatedState = prompts.StateMapping[state_str]
+					}
+					if translatedState == "" {
+						return fmt.Errorf("unknown state")
+					}
+					dataLocation.State = translatedState
+					return nil
+				},
+			},
+			{
+				Question:     "Tournament division (a, b, c)",
+				DefaultValue: metadata.Division,
+				Parse: func(s string) error {
+					if len(s) == 0 {
+						return fmt.Errorf("required")
+					}
+					c := strings.ToLower(s)[0]
+					if c < 'a' || c > 'c' {
+						return fmt.Errorf("unknown tournament division")
+					}
+
+					dataLocation.Division = strings.ToUpper(s[:1])
+					return nil
+				},
+			},
+			{
+				Question: "Rules year",
+				Parse: func(s string) error {
+					year, err := strconv.Atoi(s)
+					if err != nil {
+						return fmt.Errorf("Parsing error")
+					}
+					dataLocation.Year = year
+					return nil
+				},
+			},
+			{
+				Question: "Tournament date",
+				Parse: func(s string) error {
+					_, err := time.Parse(time.DateOnly, s)
+					if err != nil {
+						return fmt.Errorf("Not a valid YYYY-mm-dd date")
+					}
+
+					dataLocation.Date = s
+					return nil
+				},
+			},
+		}
+		if !groupTableProvided {
+			textPrompts = append(textPrompts, ui.InputData{
+				Question:     "Since no group results were provided, would you like to calculate track placements based on overall score? (y/N)",
+				DefaultValue: "N",
+				Parse: func(s string) error {
+					s = strings.ToLower(s)
+					switch s {
+					case "y":
+						dataLocation.CalculateGroupsFromOverall = true
+					case "n":
+						dataLocation.CalculateGroupsFromOverall = false
+					default:
+						return fmt.Errorf("must be y or n")
+					}
+					return nil
+				},
+			})
+		}
+
+		return SetPrompts{
+			trialPrompts: trialPrompts,
+			prompts:      textPrompts,
 		}
 	}
 }

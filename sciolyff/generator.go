@@ -2,11 +2,9 @@ package sciolyff
 
 import (
 	"fmt"
-	"os"
 	"slices"
 
 	"github.com/Nydauron/avocado2sciolyff/parsers"
-	"github.com/Nydauron/avocado2sciolyff/prompts"
 	sciolyff_models "github.com/Nydauron/avocado2sciolyff/sciolyff/models"
 )
 
@@ -22,7 +20,9 @@ func GenerateSciolyFF(table parsers.Table, groupResTable *parsers.Table, promptD
 	for _, e := range table.Events {
 		isEventTrialEvent := false
 		if e.IsMarkedAsTrial {
-			isEventTrialEvent = prompts.EventDistingushTrialMarkerPrompt(e.Name)
+			if eventTrialed, ok := promptData.TrialEventsTrialed[e.Name]; ok {
+				isEventTrialEvent = !eventTrialed
+			}
 		}
 		events = append(events, sciolyff_models.Event{Name: e.Name, IsTrial: e.IsMarkedAsTrial && isEventTrialEvent, TrialedNormalEvent: e.IsMarkedAsTrial && !isEventTrialEvent})
 	}
@@ -32,7 +32,6 @@ func GenerateSciolyFF(table parsers.Table, groupResTable *parsers.Table, promptD
 	groupScoresByTeam := map[uint]map[string]uint{}
 	if groupResTable != nil {
 		isTrackPlaceCalculationAllowed = TrackPlaceProvided
-		fmt.Fprintln(os.Stderr, "Table with group results was provided. Skipping track place calculation ...")
 		for _, team := range groupResTable.Schools {
 			// FIX: Assumes order is the same event order as overall
 			scoreMap := map[string]uint{}
@@ -42,7 +41,7 @@ func GenerateSciolyFF(table parsers.Table, groupResTable *parsers.Table, promptD
 			groupScoresByTeam[team.TeamNumber] = scoreMap
 		}
 	} else {
-		if prompts.AllowCalculationTrackPlaceFromOverallPrompt() {
+		if promptData.CalculateGroupsFromOverall {
 			isTrackPlaceCalculationAllowed = TrackPlaceCalc
 		} else {
 			isTrackPlaceCalculationAllowed = TrackPlaceNoCalc

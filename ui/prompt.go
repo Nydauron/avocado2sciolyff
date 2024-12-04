@@ -68,7 +68,15 @@ func (m Prompt) Init() tea.Cmd {
 	return nil
 }
 
-func (m Prompt) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "alt+enter":
+			m.Input.SetValue(m.Data.DefaultValue)
+			return m, nil
+		}
+	}
 	var cmd tea.Cmd
 	m.Input, cmd = m.Input.Update(msg)
 	return m, cmd
